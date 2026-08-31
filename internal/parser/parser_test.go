@@ -591,6 +591,177 @@ func TestParseDualDialogue(t *testing.T) {
 	}
 }
 
+// --- Edge Case Tests ---
+
+func TestParseDialogueWithoutCharacter(t *testing.T) {
+	input := "Hello there.\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 1 {
+		t.Fatalf("Elements len = %d, want 1", len(f.Elements))
+	}
+	// Without empty line before, "Hello there." is Action not Dialogue.
+	_, ok := f.Elements[0].(Action)
+	if !ok {
+		t.Fatalf("Element type = %T, want Action (no character context)", f.Elements[0])
+	}
+}
+
+func TestParseSceneHeadingOnlyDot(t *testing.T) {
+	input := ".SNIPER SCOPE POV\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 1 {
+		t.Fatalf("Elements len = %d, want 1", len(f.Elements))
+	}
+	sh, ok := f.Elements[0].(SceneHeading)
+	if !ok {
+		t.Fatalf("Element type = %T, want SceneHeading", f.Elements[0])
+	}
+	if sh.Text != "SNIPER SCOPE POV" {
+		t.Errorf("Text = %q, want %q", sh.Text, "SNIPER SCOPE POV")
+	}
+}
+
+func TestParseMultiLineBoneyard(t *testing.T) {
+	input := "/*\nLine 1\nLine 2\nLine 3\nLine 4\n*/\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 1 {
+		t.Fatalf("Elements len = %d, want 1", len(f.Elements))
+	}
+	b, ok := f.Elements[0].(Boneyard)
+	if !ok {
+		t.Fatalf("Element type = %T, want Boneyard", f.Elements[0])
+	}
+	expected := "/*\nLine 1\nLine 2\nLine 3\nLine 4\n*/"
+	if b.Text != expected {
+		t.Errorf("Text = %q, want %q", b.Text, expected)
+	}
+}
+
+func TestParseMultipleConsecutiveScenes(t *testing.T) {
+	input := "INT. HOUSE - DAY\n\nEXT. PARK - NIGHT\n\nINT. CAR - DAWN\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 3 {
+		t.Fatalf("Elements len = %d, want 3", len(f.Elements))
+	}
+	for i, elem := range f.Elements {
+		if _, ok := elem.(SceneHeading); !ok {
+			t.Errorf("Element[%d] type = %T, want SceneHeading", i, elem)
+		}
+	}
+}
+
+func TestParseSceneHeadingWithLowercase(t *testing.T) {
+	input := "ext. house - day\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 1 {
+		t.Fatalf("Elements len = %d, want 1", len(f.Elements))
+	}
+	sh, ok := f.Elements[0].(SceneHeading)
+	if !ok {
+		t.Fatalf("Element type = %T, want SceneHeading", f.Elements[0])
+	}
+	if sh.Text != "ext. house - day" {
+		t.Errorf("Text = %q, want %q", sh.Text, "ext. house - day")
+	}
+}
+
+func TestParseComplexTitlePage(t *testing.T) {
+	input := "Title: My Script\nCredit: Written by\nAuthor: Jane Doe\nDraft date: 01/01/2026\nContact: Studio\nSource: Novel\nRevision: v2\nCustom Key: Custom Value\n\nINT. X - DAY\n"
+	f := Parse(input)
+
+	if f.TitlePage.Title != "My Script" {
+		t.Errorf("Title = %q, want %q", f.TitlePage.Title, "My Script")
+	}
+	if f.TitlePage.Credit != "Written by" {
+		t.Errorf("Credit = %q, want %q", f.TitlePage.Credit, "Written by")
+	}
+	if f.TitlePage.Author != "Jane Doe" {
+		t.Errorf("Author = %q, want %q", f.TitlePage.Author, "Jane Doe")
+	}
+	if f.TitlePage.DraftDate != "01/01/2026" {
+		t.Errorf("DraftDate = %q, want %q", f.TitlePage.DraftDate, "01/01/2026")
+	}
+	if f.TitlePage.Contact != "Studio" {
+		t.Errorf("Contact = %q, want %q", f.TitlePage.Contact, "Studio")
+	}
+	if f.TitlePage.Source != "Novel" {
+		t.Errorf("Source = %q, want %q", f.TitlePage.Source, "Novel")
+	}
+	if f.TitlePage.Revision != "v2" {
+		t.Errorf("Revision = %q, want %q", f.TitlePage.Revision, "v2")
+	}
+	if f.TitlePage.Custom["Custom Key"] != "Custom Value" {
+		t.Errorf("Custom[Custom Key] = %q, want %q", f.TitlePage.Custom["Custom Key"], "Custom Value")
+	}
+}
+
+func TestParseScreenplayCompleteFile(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/screenplay-complete.fountain")
+	if err != nil {
+		t.Skipf("testdata file not found: %v", err)
+	}
+
+	f := Parse(string(data))
+
+	if f.TitlePage.Title != "THE LAST SIGNAL" {
+		t.Errorf("Title = %q, want %q", f.TitlePage.Title, "THE LAST SIGNAL")
+	}
+	if f.TitlePage.Author != "Jane Smith" {
+		t.Errorf("Author = %q, want %q", f.TitlePage.Author, "Jane Smith")
+	}
+
+	// Verify no Section or Synopsis elements in output
+	for i, elem := range f.Elements {
+		if _, ok := elem.(Section); ok {
+			t.Errorf("Element[%d] is Section, should be filtered", i)
+		}
+		if _, ok := elem.(Synopsis); ok {
+			t.Errorf("Element[%d] is Synopsis, should be filtered", i)
+		}
+	}
+
+	// Check for presence of key element types
+	hasType := make(map[string]bool)
+	for _, elem := range f.Elements {
+		switch elem.(type) {
+		case SceneHeading:
+			hasType["SceneHeading"] = true
+		case Action:
+			hasType["Action"] = true
+		case Character:
+			hasType["Character"] = true
+		case Dialogue:
+			hasType["Dialogue"] = true
+		case Parenthetical:
+			hasType["Parenthetical"] = true
+		case Transition:
+			hasType["Transition"] = true
+		case Centered:
+			hasType["Centered"] = true
+		case Note:
+			hasType["Note"] = true
+		case Boneyard:
+			hasType["Boneyard"] = true
+		case Lyric:
+			hasType["Lyric"] = true
+		case Forced:
+			hasType["Forced"] = true
+		}
+	}
+
+	required := []string{"SceneHeading", "Action", "Character", "Dialogue", "Transition", "Note", "Boneyard", "Lyric", "Centered"}
+	for _, name := range required {
+		if !hasType[name] {
+			t.Errorf("Missing element type: %s", name)
+		}
+	}
+}
+
 // --- Helper ---
 
 func assertType[T Element](t *testing.T, elem Element, typeName string) {
