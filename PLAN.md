@@ -119,7 +119,7 @@ Usar librería [gofpdf](https://github.com/jung-kurt/gofpdf) para generar PDF.
 - Manejo de page numbers
 - Title page separada
 
-## Fase 5: CLI (`main.go`) - [ ] Pendiente
+## Fase 5: CLI (`main.go`) - [x] Completada
 
 ```
 USAGE:
