@@ -135,11 +135,14 @@ OPTIONS:
 - Lee de stdin si input es `-`
 - Exit codes: 0=ok, 1=error
 
-## Fase 6: Tests - [ ] Pendiente
+## Fase 6: Tests - [x] Completada
 
 - **Unit tests** para cada tipo de elemento en el parser
-- **Integration tests** con archivos `.fountain` reales (Big Fish sample)
-- **Golden file tests** — comparar PDF generado con PDF esperado
+- **Integration tests** con archivos `.fountain` reales (`screenplay-complete.fountain`)
+- **PDF structure tests** — verificar header, EOF, objetos de página (no golden files por timestamps no determinísticos en PDFs)
+- **CLI tests** — integración end-to-end del CLI
+
+> **Nota sobre golden files:** Los golden files (PDFs exactos) no se implementaron porque `gofpdf` incluye timestamps y metadatos no determinísticos que cambian entre ejecuciones. En su lugar se usan tests estructurales que verifican la validez del PDF generado.
 
 ## Dependencias Go
 
