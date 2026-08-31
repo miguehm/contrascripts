@@ -94,7 +94,7 @@ Convierte tokens en AST:
 - Sections y synopses son ignoradas en output (v1.1 spec)
 - Énfasis: parse `*italics*`, `_underline_`, `**bold**`, `~~strike~~`
 
-## Fase 4: Renderer PDF (`internal/renderer/pdf.go`) - [ ] Pendiente
+## Fase 4: Renderer PDF (`internal/renderer/pdf.go`) - [x] Completada
 
 Usar librería [gofpdf](https://github.com/jung-kurt/gofpdf) para generar PDF.
 
