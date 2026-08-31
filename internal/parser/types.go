@@ -93,3 +93,24 @@ type Forced struct {
 
 // EmptyLine is a blank line used as a context separator.
 type EmptyLine struct{}
+
+// PageBreak represents a forced page break (===).
+type PageBreak struct{}
+
+// --- Element interface implementations ---
+
+func (SceneHeading) elementNode()  {}
+func (Action) elementNode()        {}
+func (Character) elementNode()     {}
+func (Dialogue) elementNode()      {}
+func (Parenthetical) elementNode() {}
+func (Transition) elementNode()    {}
+func (Centered) elementNode()      {}
+func (Note) elementNode()          {}
+func (Boneyard) elementNode()      {}
+func (Section) elementNode()       {}
+func (Synopsis) elementNode()      {}
+func (Lyric) elementNode()         {}
+func (Forced) elementNode()        {}
+func (EmptyLine) elementNode()     {}
+func (PageBreak) elementNode()     {}
