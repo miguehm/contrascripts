@@ -59,7 +59,7 @@ type Fountain struct {
 type Element interface{}
 ```
 
-## Fase 2: Lexer (`internal/parser/lexer.go`) - [ ] Pendiente
+## Fase 2: Lexer (`internal/parser/lexer.go`) - [x] Completada
 
 Tokenizer line-by-line que identifica:
 
@@ -85,7 +85,7 @@ Tokenizer line-by-line que identifica:
 12. Dialogue
 13. Action (fallback)
 
-## Fase 3: Parser (`internal/parser/parser.go`) - [ ] Pendiente
+## Fase 3: Parser (`internal/parser/parser.go`) - [x] Completada
 
 Convierte tokens en AST:
 
