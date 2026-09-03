@@ -45,8 +45,18 @@ func New(doc *parser.Fountain) *PDFRenderer {
 	pdf := gofpdf.New("P", "in", "Letter", "")
 	pdf.SetMargins(marginLeft, marginTop, marginRight)
 	pdf.SetAutoPageBreak(true, marginBottom)
-	pdf.SetFont("Courier", "", fontSize)
-	tr := pdf.UnicodeTranslatorFromDescriptor("")
+	registerCourierPrime(pdf)
+	if pdf.Err() {
+		pdf.SetFont("Courier", "", fontSize)
+		tr := pdf.UnicodeTranslatorFromDescriptor("")
+		return &PDFRenderer{
+			pdf: pdf,
+			doc: doc,
+			tr:  tr,
+		}
+	}
+	pdf.SetFont(fontFamily, "", fontSize)
+	tr := func(s string) string { return s }
 
 	return &PDFRenderer{
 		pdf: pdf,
@@ -68,7 +78,7 @@ func (r *PDFRenderer) RenderToWriter(w io.Writer) error {
 func (r *PDFRenderer) render() {
 	r.pdf.SetHeaderFuncMode(func() {
 		if r.pdf.PageNo() > 1 {
-			r.pdf.SetFont("Courier", "", 10)
+			r.pdf.SetFont(fontFamily, "", 10)
 			r.pdf.SetXY(pageWidth-marginRight-0.5, 0.5)
 			r.pdf.CellFormat(0.5, 0.25, fmt.Sprintf("%d", r.pdf.PageNo()-1), "", 0, "R", false, 0, "")
 		}
@@ -118,9 +128,9 @@ func (r *PDFRenderer) renderTitlePage() {
 		if text == "" {
 			return
 		}
-		r.pdf.SetFont("Courier", style, fontSize)
+		r.pdf.SetFont(fontFamily, style, fontSize)
 		center(text)
-		r.pdf.SetFont("Courier", "", fontSize)
+		r.pdf.SetFont(fontFamily, "", fontSize)
 	}
 	gap := func(h float64) {
 		r.pdf.SetY(r.pdf.GetY() + h)
@@ -138,7 +148,7 @@ func (r *PDFRenderer) renderTitlePage() {
 		center(strings.Join(keep, "  |  "))
 	}
 
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 
 	// Zone 1: identity top-center.
 	if tp.Title != "" {
@@ -323,18 +333,18 @@ func (r *PDFRenderer) renderElement(el parser.Element) {
 
 func (r *PDFRenderer) renderSceneHeading(el parser.SceneHeading) {
 	r.pdf.Ln(0.15)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(charLeft)
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(charLeft)
 	r.pdf.MultiCell(0, lineSpacing, r.tr(strings.ToUpper(el.Text)), "", "L", false)
 	r.pdf.Ln(0.15)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
 func (r *PDFRenderer) renderAction(el parser.Action) {
 	r.pdf.Ln(0.05)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(actionLeft)
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(actionLeft)
@@ -344,7 +354,7 @@ func (r *PDFRenderer) renderAction(el parser.Action) {
 
 func (r *PDFRenderer) renderCharacter(el parser.Character) {
 	r.pdf.Ln(0.1)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(charNameLeft)
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(charNameLeft)
@@ -352,7 +362,7 @@ func (r *PDFRenderer) renderCharacter(el parser.Character) {
 	name := strings.ToUpper(el.Text)
 
 	r.pdf.MultiCell(0, lineSpacing, r.tr(name), "", "L", false)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
 func (r *PDFRenderer) renderDialogue(el parser.Dialogue) {
@@ -372,7 +382,7 @@ func (r *PDFRenderer) renderParenthetical(el parser.Parenthetical) {
 
 func (r *PDFRenderer) renderTransition(el parser.Transition) {
 	r.pdf.Ln(0.1)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 	text := r.tr(strings.ToUpper(el.Text))
 	w := r.pdf.GetStringWidth(text)
 	x := pageWidth - marginRight - w
@@ -387,7 +397,7 @@ func (r *PDFRenderer) renderTransition(el parser.Transition) {
 
 func (r *PDFRenderer) renderCentered(el parser.Centered) {
 	r.pdf.Ln(0.05)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(0)
 	r.pdf.SetRightMargin(0)
 	r.pdf.SetX(0)
@@ -416,12 +426,12 @@ func (r *PDFRenderer) renderCentered(el parser.Centered) {
 		startX := (pageWidth - totalW) / 2.0
 		r.pdf.SetX(startX)
 		for _, run := range runs {
-			r.pdf.SetFont("Courier", run.style, fontSize)
+			r.pdf.SetFont(fontFamily, run.style, fontSize)
 			runW := r.pdf.GetStringWidth(run.text)
 			r.pdf.CellFormat(runW, lineSpacing, run.text, "", 0, "L", false, 0, "")
 		}
 		r.pdf.Ln(lineSpacing)
-		r.pdf.SetFont("Courier", "", fontSize)
+		r.pdf.SetFont(fontFamily, "", fontSize)
 	}
 
 	r.pdf.Ln(0.05)
@@ -430,12 +440,12 @@ func (r *PDFRenderer) renderCentered(el parser.Centered) {
 }
 
 func (r *PDFRenderer) renderLyric(el parser.Lyric) {
-	r.pdf.SetFont("Courier", "I", fontSize)
+	r.pdf.SetFont(fontFamily, "I", fontSize)
 	r.pdf.SetLeftMargin(charLeft)
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(charLeft)
 	r.renderFormattedBlock(el.Text, charLeft, pageWidth-charLeft-marginRight, false, true)
-	r.pdf.SetFont("Courier", "", fontSize)
+	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
 func (r *PDFRenderer) renderForced(el parser.Forced) {
@@ -527,7 +537,7 @@ func (r *PDFRenderer) renderFormattedBlock(text string, startX, width float64, b
 	chunks := mergeChunks(flattenInline(inlines, baseBold, baseItalic))
 
 	if !hasFormatting(chunks, baseBold, baseItalic) {
-		r.pdf.SetFont("Courier", r.styleStr(baseBold, baseItalic), fontSize)
+		r.pdf.SetFont(fontFamily, r.styleStr(baseBold, baseItalic), fontSize)
 		r.pdf.MultiCell(0, lineSpacing, r.tr(text), "", "L", false)
 		return
 	}
@@ -554,7 +564,7 @@ func (r *PDFRenderer) renderFormattedBlock(text string, startX, width float64, b
 			continue
 		}
 		for _, seg := range line {
-			r.pdf.SetFont("Courier", seg.style(), fontSize)
+			r.pdf.SetFont(fontFamily, seg.style(), fontSize)
 			w := r.pdf.GetStringWidth(seg.text)
 			r.pdf.CellFormat(w, lineSpacing, seg.text, "", 0, "L", false, 0, "")
 		}
@@ -625,7 +635,7 @@ func (r *PDFRenderer) wrapStyled(chunks []styledChunk, width float64) [][]styled
 }
 
 func (r *PDFRenderer) stringWidth(text string, bold, italic bool) float64 {
-	r.pdf.SetFont("Courier", styledChunk{bold: bold, italic: italic}.style(), fontSize)
+	r.pdf.SetFont(fontFamily, styledChunk{bold: bold, italic: italic}.style(), fontSize)
 	return r.pdf.GetStringWidth(text)
 }
 
