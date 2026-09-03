@@ -85,7 +85,19 @@ func hasTitlePage(doc *parser.Fountain) bool {
 	tp := doc.TitlePage
 	return tp.Title != "" || tp.Credit != "" || tp.Author != "" ||
 		tp.DraftDate != "" || tp.Contact != "" || tp.Source != "" ||
-		tp.Revision != "" || len(tp.Custom) > 0
+		tp.Revision != "" || tp.Logline != "" || tp.Tagline != "" ||
+		tp.Synopsis != "" || tp.Genre != "" || tp.Subgenre != "" ||
+		tp.Tone != "" || tp.Themes != "" || tp.Comps != "" ||
+		tp.Format != "" || tp.Season != "" || tp.Episode != "" ||
+		tp.EpisodeTitle != "" || tp.Runtime != "" || tp.Pages != "" ||
+		tp.Language != "" || tp.Status != "" || tp.ProdCompany != "" ||
+		tp.Producer != "" || tp.Director != "" || tp.Budget != "" ||
+		tp.AdaptedBy != "" || tp.BasedOn != "" || tp.Copyright != "" ||
+		tp.WGA != "" || tp.Rights != "" || tp.Dedication != "" ||
+		tp.Disclaimer != "" || tp.DraftType != "" || tp.Version != "" ||
+		tp.RevisionColor != "" || tp.RevisionDate != "" || tp.Email != "" ||
+		tp.Phone != "" || tp.Agent != "" || tp.Manager != "" ||
+		tp.Address != "" || len(tp.Custom) > 0
 }
 
 func (r *PDFRenderer) renderTitlePage() {
@@ -102,65 +114,176 @@ func (r *PDFRenderer) renderTitlePage() {
 		r.pdf.SetX(0)
 		r.pdf.MultiCell(pageWidth, lineSpacing, r.tr(text), "", "C", false)
 	}
+	centerStyled := func(text, style string) {
+		if text == "" {
+			return
+		}
+		r.pdf.SetFont("Courier", style, fontSize)
+		center(text)
+		r.pdf.SetFont("Courier", "", fontSize)
+	}
 	gap := func(h float64) {
 		r.pdf.SetY(r.pdf.GetY() + h)
+	}
+	metaLine := func(parts ...string) {
+		var keep []string
+		for _, p := range parts {
+			if strings.TrimSpace(p) != "" {
+				keep = append(keep, p)
+			}
+		}
+		if len(keep) == 0 {
+			return
+		}
+		center(strings.Join(keep, "  |  "))
 	}
 
 	r.pdf.SetFont("Courier", "", fontSize)
 
-	// Title in the upper third of the page.
+	// Zone 1: identity top-center.
 	if tp.Title != "" {
-		r.pdf.SetY(3.5)
+		r.pdf.SetY(3.0)
 		center(strings.ToUpper(tp.Title))
-		gap(0.5)
+		gap(0.4)
 	}
-
 	if tp.Credit != "" {
 		center(tp.Credit)
-		gap(0.25)
+		gap(0.2)
 	}
-
 	if tp.Author != "" {
 		center(tp.Author)
-		gap(0.5)
+		gap(0.3)
+	}
+	if tp.AdaptedBy != "" {
+		center(tp.AdaptedBy)
+		gap(0.2)
+	}
+	if tp.BasedOn != "" {
+		center(tp.BasedOn)
+		gap(0.2)
+	}
+	if tp.EpisodeTitle != "" {
+		centerStyled("\""+tp.EpisodeTitle+"\"", "I")
+		gap(0.2)
+	}
+
+	// Zone 2: editorial middle-center.
+	if tp.Logline != "" {
+		centerStyled(tp.Logline, "I")
+		gap(0.2)
+	}
+	if tp.Tagline != "" {
+		center(tp.Tagline)
+		gap(0.2)
+	}
+	metaLine(tp.Genre, tp.Subgenre, tp.Tone)
+	if tp.Genre != "" || tp.Subgenre != "" || tp.Tone != "" {
+		gap(0.15)
+	}
+	metaLine(tp.Format, seasonEpisodeText(tp), tp.Runtime, tp.Language)
+	if tp.Format != "" || tp.Season != "" || tp.Episode != "" || tp.Runtime != "" || tp.Language != "" {
+		gap(0.15)
+	}
+	if tp.Comps != "" {
+		center("Comps: " + tp.Comps)
+		gap(0.15)
+	}
+	if tp.Themes != "" {
+		center("Themes: " + tp.Themes)
+		gap(0.15)
+	}
+	if tp.Status != "" || tp.ProdCompany != "" || tp.Producer != "" || tp.Director != "" || tp.Budget != "" {
+		gap(0.1)
+		metaLine(tp.Status, tp.ProdCompany)
+		metaLine(tp.Producer, tp.Director, tp.Budget)
+		gap(0.15)
 	}
 
 	if tp.Source != "" {
 		center(tp.Source)
-		gap(0.25)
+		gap(0.2)
 	}
-
 	if tp.Revision != "" {
 		center(tp.Revision)
-		gap(0.25)
+		gap(0.2)
 	}
-
 	for k, v := range tp.Custom {
 		if v != "" {
 			center(fmt.Sprintf("%s: %s", k, v))
-			gap(0.2)
+			gap(0.15)
 		}
 	}
 
-	// Draft date and contact sit near the bottom of the page.
-	if tp.DraftDate != "" || tp.Contact != "" {
-		const bottomY = 8.5
+	// Zone 3: version + contact footer.
+	draftLeft := strings.Join(nonEmpty(tp.DraftType, tp.Version, tp.RevisionColor, tp.RevisionDate, tp.DraftDate, tp.Pages), "  ")
+	contactRight := strings.Join(nonEmpty(tp.Contact, tp.Address, tp.Email, tp.Phone, tp.Agent, tp.Manager), "\n")
+	legal := strings.Join(nonEmpty(tp.Copyright, tp.WGA, tp.Rights), "\n")
+	if draftLeft != "" || contactRight != "" || legal != "" {
+		const bottomY = 8.0
 		if r.pdf.GetY() < bottomY {
 			r.pdf.SetY(bottomY)
 		} else {
 			gap(0.3)
 		}
-		if tp.DraftDate != "" {
-			center(tp.DraftDate)
+		if draftLeft != "" {
+			center(draftLeft)
 			gap(0.2)
 		}
-		if tp.Contact != "" {
-			center(tp.Contact)
+		if contactRight != "" {
+			center(contactRight)
+			gap(0.2)
+		}
+		if legal != "" {
+			center(legal)
+			gap(0.15)
+		}
+	}
+
+	// Overflow: synopsis, dedication, disclaimer go to page 2.
+	if tp.Synopsis != "" || tp.Dedication != "" || tp.Disclaimer != "" {
+		r.pdf.AddPage()
+		r.pdf.SetLeftMargin(marginLeft)
+		r.pdf.SetRightMargin(marginRight)
+		if tp.Synopsis != "" {
+			r.pdf.SetX(marginLeft)
+			r.pdf.MultiCell(0, lineSpacing, r.tr("Synopsis: "+tp.Synopsis), "", "L", false)
+			gap(0.2)
+		}
+		if tp.Dedication != "" {
+			r.pdf.SetX(marginLeft)
+			r.pdf.MultiCell(0, lineSpacing, r.tr(tp.Dedication), "", "C", false)
+			gap(0.2)
+		}
+		if tp.Disclaimer != "" {
+			r.pdf.SetX(marginLeft)
+			r.pdf.MultiCell(0, lineSpacing, r.tr(tp.Disclaimer), "", "L", false)
 		}
 	}
 
 	r.pdf.SetLeftMargin(marginLeft)
 	r.pdf.SetRightMargin(marginRight)
+}
+
+func seasonEpisodeText(tp parser.TitlePage) string {
+	var se string
+	if tp.Season != "" && tp.Episode != "" {
+		se = "S" + tp.Season + "E" + tp.Episode
+	} else if tp.Season != "" {
+		se = "Season " + tp.Season
+	} else if tp.Episode != "" {
+		se = "Episode " + tp.Episode
+	}
+	return se
+}
+
+func nonEmpty(parts ...string) []string {
+	var out []string
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (r *PDFRenderer) renderElements() {
