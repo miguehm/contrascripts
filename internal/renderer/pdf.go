@@ -66,13 +66,13 @@ func (r *PDFRenderer) RenderToWriter(w io.Writer) error {
 }
 
 func (r *PDFRenderer) render() {
-	r.pdf.SetHeaderFunc(func() {
+	r.pdf.SetHeaderFuncMode(func() {
 		if r.pdf.PageNo() > 1 {
 			r.pdf.SetFont("Courier", "", 10)
 			r.pdf.SetXY(pageWidth-marginRight-0.5, 0.3)
 			r.pdf.CellFormat(0.5, 0.3, fmt.Sprintf("%d", r.pdf.PageNo()-1), "", 0, "R", false, 0, "")
 		}
-	})
+	}, true)
 
 	if hasTitlePage(r.doc) {
 		r.renderTitlePage()
