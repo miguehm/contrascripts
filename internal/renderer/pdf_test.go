@@ -338,14 +338,14 @@ func TestRenderManyElementsPageBreak(t *testing.T) {
 func TestRenderLongTitlePage(t *testing.T) {
 	doc := &parser.Fountain{
 		TitlePage: parser.TitlePage{
-			Title:      "A Very Long Title That Should Wrap or Display Correctly On The Title Page",
-			Credit:     "Written by",
-			Author:     "Author Name",
-			DraftDate:  "01/01/2026",
-			Contact:    "Studio Address\nLine 2\nLine 3",
-			Source:     "Based on the novel by Someone",
-			Revision:   "Draft 3",
-			Custom:     map[string]string{"Draft": "First"},
+			Title:     "A Very Long Title That Should Wrap or Display Correctly On The Title Page",
+			Credit:    "Written by",
+			Author:    "Author Name",
+			DraftDate: "01/01/2026",
+			Contact:   "Studio Address\nLine 2\nLine 3",
+			Source:    "Based on the novel by Someone",
+			Revision:  "Draft 3",
+			Custom:    map[string]string{"Draft": "First"},
 		},
 		Elements: []parser.Element{
 			parser.SceneHeading{Text: "INT. OFFICE - DAY"},
@@ -369,6 +369,34 @@ func TestRenderOnlyTitlePage(t *testing.T) {
 		t.Fatalf("RenderToWriter failed: %v", err)
 	}
 
+	if buf.Len() == 0 {
+		t.Fatal("expected non-empty PDF output")
+	}
+}
+
+func TestRenderYAMLFrontMatterTitlePage(t *testing.T) {
+	src := "title: Buscar al diablo\n" +
+		"author:\n" +
+		"  - Sarahi Zepeda Carrera\n" +
+		"  - Miguel Hernandez Moreno\n" +
+		"draft-date: 13/08/2026\n" +
+		"---\n" +
+		"\n" +
+		"EXT. CALLE - DIA #1#\n" +
+		"\n" +
+		"MADRE V.O\n" +
+		"No pude pagar la renta.\n"
+
+	doc := parser.Parse(src)
+	if doc.TitlePage.Title != "Buscar al diablo" {
+		t.Fatalf("Title = %q, want %q", doc.TitlePage.Title, "Buscar al diablo")
+	}
+
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
 	if buf.Len() == 0 {
 		t.Fatal("expected non-empty PDF output")
 	}

@@ -31,8 +31,8 @@ const (
 	dialogRight  = 6.0
 	transRight   = 1.0
 
-	lineHeight = 6.0 // points per line at 12pt Courier
-	fontSize   = 12.0
+	fontSize    = 12.0
+	lineSpacing = 0.1667 // inches per line: 12pt Courier leading (1/6 inch per screenplay line)
 )
 
 type PDFRenderer struct {
@@ -69,8 +69,8 @@ func (r *PDFRenderer) render() {
 	r.pdf.SetHeaderFuncMode(func() {
 		if r.pdf.PageNo() > 1 {
 			r.pdf.SetFont("Courier", "", 10)
-			r.pdf.SetXY(pageWidth-marginRight-0.5, 0.3)
-			r.pdf.CellFormat(0.5, 0.3, fmt.Sprintf("%d", r.pdf.PageNo()-1), "", 0, "R", false, 0, "")
+			r.pdf.SetXY(pageWidth-marginRight-0.5, 0.5)
+			r.pdf.CellFormat(0.5, 0.25, fmt.Sprintf("%d", r.pdf.PageNo()-1), "", 0, "R", false, 0, "")
 		}
 	}, true)
 
@@ -90,49 +90,77 @@ func hasTitlePage(doc *parser.Fountain) bool {
 
 func (r *PDFRenderer) renderTitlePage() {
 	r.pdf.AddPage()
-	r.pdf.SetFont("Courier", "", fontSize)
-
 	tp := r.doc.TitlePage
-	y := 3.5
 
-	if tp.Title != "" {
-		r.pdf.SetFont("Courier", "B", 24)
-		r.pdf.SetXY(0, y)
-		r.pdf.CellFormat(pageWidth, 12, r.tr(strings.ToUpper(tp.Title)), "", 1, "C", false, 0, "")
-		y += 0.6
+	// center writes a (possibly multi-line) field centered across the page.
+	center := func(text string) {
+		if text == "" {
+			return
+		}
+		r.pdf.SetLeftMargin(0)
+		r.pdf.SetRightMargin(0)
+		r.pdf.SetX(0)
+		r.pdf.MultiCell(pageWidth, lineSpacing, r.tr(text), "", "C", false)
+	}
+	gap := func(h float64) {
+		r.pdf.SetY(r.pdf.GetY() + h)
 	}
 
 	r.pdf.SetFont("Courier", "", fontSize)
 
-	fields := []struct {
-		label string
-		value string
-	}{
-		{"Credit", tp.Credit},
-		{"Author", tp.Author},
-		{"Draft Date", tp.DraftDate},
-		{"Contact", tp.Contact},
-		{"Source", tp.Source},
-		{"Revision", tp.Revision},
+	// Title in the upper third of the page.
+	if tp.Title != "" {
+		r.pdf.SetY(3.5)
+		center(strings.ToUpper(tp.Title))
+		gap(0.5)
 	}
 
-	for _, f := range fields {
-		if f.value != "" {
-			r.pdf.SetXY(0, y)
-			r.pdf.CellFormat(pageWidth, 0.3, r.tr(f.value), "", 1, "C", false, 0, "")
-			y += 0.35
-		}
+	if tp.Credit != "" {
+		center(tp.Credit)
+		gap(0.25)
+	}
+
+	if tp.Author != "" {
+		center(tp.Author)
+		gap(0.5)
+	}
+
+	if tp.Source != "" {
+		center(tp.Source)
+		gap(0.25)
+	}
+
+	if tp.Revision != "" {
+		center(tp.Revision)
+		gap(0.25)
 	}
 
 	for k, v := range tp.Custom {
 		if v != "" {
-			r.pdf.SetXY(0, y)
-			r.pdf.CellFormat(pageWidth, 0.3, r.tr(fmt.Sprintf("%s: %s", k, v)), "", 1, "C", false, 0, "")
-			y += 0.35
+			center(fmt.Sprintf("%s: %s", k, v))
+			gap(0.2)
 		}
 	}
 
-	r.pdf.AddPage()
+	// Draft date and contact sit near the bottom of the page.
+	if tp.DraftDate != "" || tp.Contact != "" {
+		const bottomY = 8.5
+		if r.pdf.GetY() < bottomY {
+			r.pdf.SetY(bottomY)
+		} else {
+			gap(0.3)
+		}
+		if tp.DraftDate != "" {
+			center(tp.DraftDate)
+			gap(0.2)
+		}
+		if tp.Contact != "" {
+			center(tp.Contact)
+		}
+	}
+
+	r.pdf.SetLeftMargin(marginLeft)
+	r.pdf.SetRightMargin(marginRight)
 }
 
 func (r *PDFRenderer) renderElements() {
@@ -176,7 +204,7 @@ func (r *PDFRenderer) renderSceneHeading(el parser.SceneHeading) {
 	r.pdf.SetLeftMargin(charLeft)
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(charLeft)
-	r.pdf.MultiCell(0, 0.18, r.tr(strings.ToUpper(el.Text)), "", "L", false)
+	r.pdf.MultiCell(0, lineSpacing, r.tr(strings.ToUpper(el.Text)), "", "L", false)
 	r.pdf.Ln(0.15)
 	r.pdf.SetFont("Courier", "", fontSize)
 }
@@ -203,7 +231,7 @@ func (r *PDFRenderer) renderCharacter(el parser.Character) {
 		name += " " + el.Extension
 	}
 
-	r.pdf.MultiCell(0, 0.18, r.tr(name), "", "L", false)
+	r.pdf.MultiCell(0, lineSpacing, r.tr(name), "", "L", false)
 	r.pdf.SetFont("Courier", "", fontSize)
 }
 
@@ -231,7 +259,7 @@ func (r *PDFRenderer) renderTransition(el parser.Transition) {
 	r.pdf.SetLeftMargin(0)
 	r.pdf.SetRightMargin(0)
 	r.pdf.SetX(x)
-	r.pdf.CellFormat(w, 0.18, text, "", 1, "L", false, 0, "")
+	r.pdf.CellFormat(w, lineSpacing, text, "", 1, "L", false, 0, "")
 	r.pdf.Ln(0.1)
 	r.pdf.SetLeftMargin(marginLeft)
 	r.pdf.SetRightMargin(marginRight)
@@ -248,7 +276,7 @@ func (r *PDFRenderer) renderCentered(el parser.Centered) {
 	chunks := mergeChunks(flattenInline(inlines, false, false))
 
 	if !hasFormatting(chunks, false, false) {
-		r.pdf.CellFormat(pageWidth, 0.18, r.tr(el.Text), "", 1, "C", false, 0, "")
+		r.pdf.CellFormat(pageWidth, lineSpacing, r.tr(el.Text), "", 1, "C", false, 0, "")
 	} else {
 		var plainTrText string
 		type centerRun struct {
@@ -270,9 +298,9 @@ func (r *PDFRenderer) renderCentered(el parser.Centered) {
 		for _, run := range runs {
 			r.pdf.SetFont("Courier", run.style, fontSize)
 			runW := r.pdf.GetStringWidth(run.text)
-			r.pdf.CellFormat(runW, 0.18, run.text, "", 0, "L", false, 0, "")
+			r.pdf.CellFormat(runW, lineSpacing, run.text, "", 0, "L", false, 0, "")
 		}
-		r.pdf.Ln(0.18)
+		r.pdf.Ln(lineSpacing)
 		r.pdf.SetFont("Courier", "", fontSize)
 	}
 
@@ -309,8 +337,8 @@ func (r *PDFRenderer) renderPageBreak() {
 
 // styledChunk represents a run of text with a specific font style.
 type styledChunk struct {
-	text  string
-	bold  bool
+	text   string
+	bold   bool
 	italic bool
 }
 
@@ -380,7 +408,7 @@ func (r *PDFRenderer) renderFormattedBlock(text string, startX, width float64, b
 
 	if !hasFormatting(chunks, baseBold, baseItalic) {
 		r.pdf.SetFont("Courier", r.styleStr(baseBold, baseItalic), fontSize)
-		r.pdf.MultiCell(0, 0.18, r.tr(text), "", "L", false)
+		r.pdf.MultiCell(0, lineSpacing, r.tr(text), "", "L", false)
 		return
 	}
 
@@ -389,8 +417,8 @@ func (r *PDFRenderer) renderFormattedBlock(text string, startX, width float64, b
 	translated := make([]styledChunk, len(chunks))
 	for i, c := range chunks {
 		translated[i] = styledChunk{
-			text:  strings.Replace(r.tr(c.text), "\r", "", -1),
-			bold:  c.bold,
+			text:   strings.Replace(r.tr(c.text), "\r", "", -1),
+			bold:   c.bold,
 			italic: c.italic,
 		}
 	}
@@ -402,15 +430,15 @@ func (r *PDFRenderer) renderFormattedBlock(text string, startX, width float64, b
 	for _, line := range lines {
 		r.pdf.SetX(startX)
 		if line == nil {
-			r.pdf.Ln(0.18)
+			r.pdf.Ln(lineSpacing)
 			continue
 		}
 		for _, seg := range line {
 			r.pdf.SetFont("Courier", seg.style(), fontSize)
 			w := r.pdf.GetStringWidth(seg.text)
-			r.pdf.CellFormat(w, 0.18, seg.text, "", 0, "L", false, 0, "")
+			r.pdf.CellFormat(w, lineSpacing, seg.text, "", 0, "L", false, 0, "")
 		}
-		r.pdf.Ln(0.18)
+		r.pdf.Ln(lineSpacing)
 	}
 }
 
