@@ -60,8 +60,8 @@ func NewLexer(input string) *Lexer {
 		lines = strings.Split(input, "\n")
 	}
 	return &Lexer{
-		input:  lines,
-		state:  lexerState{},
+		input: lines,
+		state: lexerState{},
 	}
 }
 
@@ -87,9 +87,23 @@ func (l *Lexer) Tokenize() []Token {
 	return l.tokens
 }
 
+// titleEntry is a single title page field collected while scanning the header.
+type titleEntry struct {
+	key   string
+	value string
+}
+
 // parseTitlePage extracts title page metadata from the leading lines.
 // Returns the title page tokens and the index of the first non-title line.
-// Title pages must start with "Key: Value" lines and end at the first blank line.
+//
+// Two header styles are supported:
+//
+//   - Fountain classic: "Key: Value" lines starting on the very first line,
+//     ending at the first blank line or non-title line.
+//   - YAML front matter: an optional leading "---", "key: value" lines (with
+//     indented continuation or "- item" lists), terminated by a "---" line.
+//
+// Blank lines are only allowed inside a YAML front matter block.
 func (l *Lexer) parseTitlePage() ([]Token, int) {
 	if len(l.input) == 0 {
 		return nil, 0
@@ -100,50 +114,97 @@ func (l *Lexer) parseTitlePage() ([]Token, int) {
 		return nil, 0
 	}
 
-	// The first line must be a "Key: Value" line to be a title page.
-	if key, value, ok := parseTitleKeyValue(strings.TrimSpace(l.input[0])); !ok || !isTitlePageEntry(key, value) {
-		return nil, 0
+	yamlOpen := strings.TrimSpace(l.input[0]) == "---"
+
+	if !yamlOpen {
+		// The first line must be a "Key: Value" line to be a title page.
+		if key, value, ok := parseTitleKeyValue(strings.TrimSpace(l.input[0])); !ok || !isTitlePageEntry(key, value) {
+			return nil, 0
+		}
 	}
 
-	// Scan until blank line or non-title-page line.
-	titleEnd := 0
-	var tokens []Token
-	for i, line := range l.input {
-		trimmed := strings.TrimSpace(line)
+	var entries []titleEntry
+	line := 0
+	if yamlOpen {
+		line = 1
+	}
+	closed := false
 
-		// Blank line ends the title page.
+	for line < len(l.input) {
+		raw := l.input[line]
+		trimmed := strings.TrimSpace(raw)
+
+		// "---" terminates a header block: it closes YAML front matter and also
+		// ends a Fountain-style header written with front-matter delimiters.
+		if trimmed == "---" {
+			line++
+			closed = true
+			break
+		}
+
+		// Blank line: allowed inside YAML front matter, ends a Fountain block.
 		if trimmed == "" {
-			titleEnd = i
+			if yamlOpen {
+				line++
+				continue
+			}
 			break
 		}
 
 		// Key: Value line.
 		if key, value, ok := parseTitleKeyValue(trimmed); ok && isTitlePageEntry(key, value) {
-			tokens = append(tokens, Token{
-				Type:    TokenForced,
-				Line:    i + 1,
-				Content: key + ": " + value,
-			})
-			titleEnd = i + 1
+			value = stripTitleQuotes(value)
+			entries = append(entries, titleEntry{key: key, value: value})
+			line++
 			continue
 		}
 
-		// Indented continuation (3+ spaces or tab).
-		if strings.HasPrefix(line, "   ") || strings.HasPrefix(line, "\t") {
-			if len(tokens) > 0 {
-				last := &tokens[len(tokens)-1]
-				last.Content = last.Content + "\n" + trimmed
+		// Indented continuation (space, tab) or "- item" list entry. Inside a
+		// header block an indented line always belongs to the previous field.
+		if len(entries) > 0 && (strings.HasPrefix(raw, " ") || strings.HasPrefix(raw, "\t") || strings.HasPrefix(trimmed, "- ")) {
+			cont := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			last := &entries[len(entries)-1]
+			if last.value == "" {
+				last.value = cont
+			} else {
+				last.value += "\n" + cont
 			}
-			titleEnd = i + 1
+			line++
 			continue
 		}
 
 		// Not a title page line — stop here.
-		titleEnd = i
 		break
 	}
 
-	return tokens, titleEnd
+	if yamlOpen && !closed {
+		return nil, 0
+	}
+	if len(entries) == 0 {
+		return nil, 0
+	}
+
+	tokens := make([]Token, 0, len(entries))
+	for i, e := range entries {
+		tokens = append(tokens, Token{
+			Type:    TokenForced,
+			Line:    i + 1,
+			Content: e.key + ": " + e.value,
+		})
+	}
+
+	return tokens, line
+}
+
+// stripTitleQuotes removes matching surrounding quotes from a YAML scalar.
+func stripTitleQuotes(value string) string {
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') ||
+			(value[0] == '\'' && value[len(value)-1] == '\'') {
+			return value[1 : len(value)-1]
+		}
+	}
+	return value
 }
 
 // isTitlePageKey checks if a key looks like a valid title page key.

@@ -74,7 +74,10 @@ func (p *Parser) parseTitlePage() TitlePage {
 
 // assignTitleField sets a known title page field or falls back to Custom.
 func (p *Parser) assignTitleField(tp *TitlePage, key, value string) {
-	switch strings.ToLower(key) {
+	// Normalize YAML-style keys ("draft-date", "draft_date") to the canonical
+	// space-separated Fountain key before matching.
+	norm := strings.NewReplacer("-", " ", "_", " ").Replace(strings.ToLower(key))
+	switch norm {
 	case "title":
 		tp.Title = value
 	case "credit":
