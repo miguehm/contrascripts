@@ -3,6 +3,7 @@ package parser
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // TokenType identifies the kind of token the lexer produces.
@@ -398,9 +399,12 @@ func (l *Lexer) tryTransition(trimmed, rawLine string) *Token {
 // trySceneHeading checks for scene headings.
 func (l *Lexer) trySceneHeading(trimmed string) *Token {
 	// Forced scene heading: . prefix followed by alphanumeric.
-	if len(trimmed) > 1 && trimmed[0] == '.' && unicode.IsLetter(rune(trimmed[1])) {
-		text := trimmed[1:]
-		return &Token{Type: TokenSceneHeading, Line: l.pos + 1, Content: text}
+	if len(trimmed) > 1 && trimmed[0] == '.' {
+		nextRune, _ := utf8.DecodeRuneInString(trimmed[1:])
+		if unicode.IsLetter(nextRune) || unicode.IsDigit(nextRune) {
+			text := trimmed[1:]
+			return &Token{Type: TokenSceneHeading, Line: l.pos + 1, Content: text}
+		}
 	}
 
 	// Natural scene heading: INT, EXT, etc. patterns (case-insensitive).

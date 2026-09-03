@@ -97,6 +97,26 @@ type EmptyLine struct{}
 // PageBreak represents a forced page break (===).
 type PageBreak struct{}
 
+// InlineElement is the interface implemented by every inline formatting node.
+type InlineElement interface {
+	inlineNode()
+}
+
+// PlainText represents unformatted plain text within an inline element.
+type PlainText struct {
+	Text string
+}
+
+// Bold represents bold text enclosed in ** **.
+type Bold struct {
+	Content []InlineElement
+}
+
+// Italic represents italic text enclosed in _ _.
+type Italic struct {
+	Content []InlineElement
+}
+
 // --- Element interface implementations ---
 
 func (SceneHeading) elementNode()  {}
@@ -114,3 +134,10 @@ func (Lyric) elementNode()         {}
 func (Forced) elementNode()        {}
 func (EmptyLine) elementNode()     {}
 func (PageBreak) elementNode()     {}
+
+// --- InlineElement interface implementations ---
+
+func (PlainText) inlineNode() {}
+func (Bold) inlineNode()      {}
+func (Italic) inlineNode()    {}
+
