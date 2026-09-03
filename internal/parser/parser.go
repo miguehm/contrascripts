@@ -77,6 +77,7 @@ func (p *Parser) assignTitleField(tp *TitlePage, key, value string) {
 	// Normalize YAML-style keys ("draft-date", "draft_date") to the canonical
 	// space-separated Fountain key before matching.
 	norm := strings.NewReplacer("-", " ", "_", " ").Replace(strings.ToLower(key))
+	norm = strings.Join(strings.Fields(norm), " ")
 	switch norm {
 	case "title":
 		tp.Title = value
@@ -92,6 +93,78 @@ func (p *Parser) assignTitleField(tp *TitlePage, key, value string) {
 		tp.Source = value
 	case "revision":
 		tp.Revision = value
+	case "logline":
+		tp.Logline = value
+	case "tagline":
+		tp.Tagline = value
+	case "synopsis":
+		tp.Synopsis = value
+	case "genre":
+		tp.Genre = value
+	case "subgenre", "sub genre":
+		tp.Subgenre = value
+	case "tone":
+		tp.Tone = value
+	case "themes", "theme":
+		tp.Themes = value
+	case "comps", "comp", "comparables":
+		tp.Comps = value
+	case "format":
+		tp.Format = value
+	case "season":
+		tp.Season = value
+	case "episode":
+		tp.Episode = value
+	case "episode title":
+		tp.EpisodeTitle = value
+	case "runtime", "running time":
+		tp.Runtime = value
+	case "pages", "page count":
+		tp.Pages = value
+	case "language":
+		tp.Language = value
+	case "status":
+		tp.Status = value
+	case "production company", "production co", "company":
+		tp.ProdCompany = value
+	case "producer":
+		tp.Producer = value
+	case "director", "director attached":
+		tp.Director = value
+	case "budget", "budget level":
+		tp.Budget = value
+	case "adapted by", "adaptation", "adapted":
+		tp.AdaptedBy = value
+	case "based on", "based":
+		tp.BasedOn = value
+	case "copyright", "(c)", "©":
+		tp.Copyright = value
+	case "wga", "wga registration", "wga number":
+		tp.WGA = value
+	case "rights":
+		tp.Rights = value
+	case "dedication", "dedicated to":
+		tp.Dedication = value
+	case "disclaimer":
+		tp.Disclaimer = value
+	case "draft type", "draft":
+		tp.DraftType = value
+	case "version":
+		tp.Version = value
+	case "revision color", "revision colour", "color":
+		tp.RevisionColor = value
+	case "revision date":
+		tp.RevisionDate = value
+	case "email", "e mail":
+		tp.Email = value
+	case "phone", "tel", "telephone":
+		tp.Phone = value
+	case "agent":
+		tp.Agent = value
+	case "manager":
+		tp.Manager = value
+	case "address":
+		tp.Address = value
 	default:
 		tp.Custom[key] = value
 	}

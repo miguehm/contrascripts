@@ -8,14 +8,50 @@ type Fountain struct {
 
 // TitlePage holds screenplay metadata.
 type TitlePage struct {
-	Title     string
-	Credit    string
-	Author    string
-	DraftDate string
-	Contact   string
-	Source    string
-	Revision  string
-	Custom    map[string]string
+	Title         string
+	Credit        string
+	Author        string
+	DraftDate     string
+	Contact       string
+	Source        string
+	Revision      string
+	Logline       string
+	Tagline       string
+	Synopsis      string
+	Genre         string
+	Subgenre      string
+	Tone          string
+	Themes        string
+	Comps         string
+	Format        string
+	Season        string
+	Episode       string
+	EpisodeTitle  string
+	Runtime       string
+	Pages         string
+	Language      string
+	Status        string
+	ProdCompany   string
+	Producer      string
+	Director      string
+	Budget        string
+	AdaptedBy     string
+	BasedOn       string
+	Copyright     string
+	WGA           string
+	Rights        string
+	Dedication    string
+	Disclaimer    string
+	DraftType     string
+	Version       string
+	RevisionColor string
+	RevisionDate  string
+	Email         string
+	Phone         string
+	Agent         string
+	Manager       string
+	Address       string
+	Custom        map[string]string
 }
 
 // Element is the interface implemented by every AST node.
@@ -140,4 +176,3 @@ func (PageBreak) elementNode()     {}
 func (PlainText) inlineNode() {}
 func (Bold) inlineNode()      {}
 func (Italic) inlineNode()    {}
-
