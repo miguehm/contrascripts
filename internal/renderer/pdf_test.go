@@ -69,7 +69,7 @@ func TestRenderAction(t *testing.T) {
 func TestRenderCharacter(t *testing.T) {
 	doc := &parser.Fountain{
 		Elements: []parser.Element{
-			parser.Character{Name: "JOHN"},
+			parser.Character{Text: "JOHN"},
 			parser.Dialogue{Text: "Hello there."},
 		},
 	}
@@ -79,7 +79,7 @@ func TestRenderCharacter(t *testing.T) {
 func TestRenderCharacterWithExtension(t *testing.T) {
 	doc := &parser.Fountain{
 		Elements: []parser.Element{
-			parser.Character{Name: "JOHN", Extension: "V.O."},
+			parser.Character{Text: "JOHN (V.O.)"},
 			parser.Dialogue{Text: "Voice over line."},
 		},
 	}
@@ -89,7 +89,7 @@ func TestRenderCharacterWithExtension(t *testing.T) {
 func TestRenderParenthetical(t *testing.T) {
 	doc := &parser.Fountain{
 		Elements: []parser.Element{
-			parser.Character{Name: "JOHN"},
+			parser.Character{Text: "JOHN"},
 			parser.Parenthetical{Text: "(whispered)"},
 			parser.Dialogue{Text: "Secret message."},
 		},
@@ -204,7 +204,7 @@ func TestRenderFullSequence(t *testing.T) {
 		Elements: []parser.Element{
 			parser.SceneHeading{Text: "INT. OFFICE - DAY"},
 			parser.Action{Text: "John sits at his desk."},
-			parser.Character{Name: "JOHN"},
+			parser.Character{Text: "JOHN"},
 			parser.Parenthetical{Text: "(sighs)"},
 			parser.Dialogue{Text: "What a day."},
 			parser.Transition{Text: "CUT TO:"},
@@ -415,7 +415,7 @@ func TestRenderDialogueWithoutCharacter(t *testing.T) {
 func TestRenderEmptyDialogue(t *testing.T) {
 	doc := &parser.Fountain{
 		Elements: []parser.Element{
-			parser.Character{Name: "JOHN"},
+			parser.Character{Text: "JOHN"},
 			parser.Dialogue{Text: ""},
 		},
 	}
@@ -427,7 +427,7 @@ func TestRenderSpecialCharacters(t *testing.T) {
 	doc := &parser.Fountain{
 		Elements: []parser.Element{
 			parser.Action{Text: "He said \"hello\" and left."},
-			parser.Character{Name: "JOSÉ"},
+			parser.Character{Text: "JOSÉ"},
 			parser.Dialogue{Text: "Ñoño says café."},
 		},
 	}
@@ -550,7 +550,7 @@ func TestRenderBoldAction(t *testing.T) {
 func TestRenderItalicDialogue(t *testing.T) {
 	doc := &parser.Fountain{
 		Elements: []parser.Element{
-			parser.Character{Name: "JOHN"},
+			parser.Character{Text: "JOHN"},
 			parser.Dialogue{Text: "I think _this_ is wrong."},
 		},
 	}

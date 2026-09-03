@@ -69,10 +69,9 @@ type Action struct {
 	Text string
 }
 
-// Character identifies a speaking character.
+// Character identifies a speaking character, stored literally as written.
 type Character struct {
-	Name      string
-	Extension string
+	Text string
 }
 
 // Dialogue is the text spoken by a character.

@@ -202,8 +202,7 @@ func (p *Parser) nextElement() Element {
 
 	case TokenCharacter:
 		p.pos++
-		name, ext := parseCharacterName(tok.Content)
-		return Character{Name: name, Extension: ext}
+		return Character{Text: tok.Content}
 
 	case TokenDialogue:
 		p.pos++
@@ -263,19 +262,4 @@ func (p *Parser) mergeConsecutiveBoneyards() Boneyard {
 		p.pos++
 	}
 	return Boneyard{Text: strings.Join(parts, "\n")}
-}
-
-// parseCharacterName splits "NAME (EXT)" into name and extension.
-func parseCharacterName(content string) (name, extension string) {
-	idx := strings.Index(content, "(")
-	if idx < 0 {
-		return content, ""
-	}
-
-	name = strings.TrimSpace(content[:idx])
-	ext := content[idx+1:]
-	ext = strings.TrimSuffix(ext, ")")
-	ext = strings.TrimSpace(ext)
-
-	return name, ext
 }

@@ -152,11 +152,8 @@ func TestParseCharacter(t *testing.T) {
 	if !ok {
 		t.Fatalf("Element type = %T, want Character", f.Elements[1])
 	}
-	if char.Name != "MAN" {
-		t.Errorf("Name = %q, want %q", char.Name, "MAN")
-	}
-	if char.Extension != "" {
-		t.Errorf("Extension = %q, want empty", char.Extension)
+	if char.Text != "MAN" {
+		t.Errorf("Text = %q, want %q", char.Text, "MAN")
 	}
 }
 
@@ -168,11 +165,21 @@ func TestParseCharacterWithExtension(t *testing.T) {
 	if !ok {
 		t.Fatalf("Element type = %T, want Character", f.Elements[1])
 	}
-	if char.Name != "MOM" {
-		t.Errorf("Name = %q, want %q", char.Name, "MOM")
+	if char.Text != "MOM (O.S.)" {
+		t.Errorf("Text = %q, want %q", char.Text, "MOM (O.S.)")
 	}
-	if char.Extension != "O.S." {
-		t.Errorf("Extension = %q, want %q", char.Extension, "O.S.")
+}
+
+func TestParseCharacterVO(t *testing.T) {
+	input := "INT. X - DAY\n\nMADRE (V.O)\nYo siempre supe.\n"
+	f := Parse(input)
+
+	char, ok := f.Elements[1].(Character)
+	if !ok {
+		t.Fatalf("Element type = %T, want Character", f.Elements[1])
+	}
+	if char.Text != "MADRE (V.O)" {
+		t.Errorf("Text = %q, want %q", char.Text, "MADRE (V.O)")
 	}
 }
 
@@ -184,8 +191,8 @@ func TestParseForcedCharacter(t *testing.T) {
 	if !ok {
 		t.Fatalf("Element type = %T, want Character", f.Elements[0])
 	}
-	if char.Name != "McCLANE" {
-		t.Errorf("Name = %q, want %q", char.Name, "McCLANE")
+	if char.Text != "McCLANE" {
+		t.Errorf("Text = %q, want %q", char.Text, "McCLANE")
 	}
 }
 
@@ -446,8 +453,8 @@ func TestParseMinimalFile(t *testing.T) {
 	assertType[Dialogue](t, f.Elements[6], "Dialogue")
 
 	char := f.Elements[2].(Character)
-	if char.Name != "MAN" {
-		t.Errorf("Character Name = %q, want %q", char.Name, "MAN")
+	if char.Text != "MAN" {
+		t.Errorf("Character Text = %q, want %q", char.Text, "MAN")
 	}
 
 	p := f.Elements[5].(Parenthetical)
@@ -529,10 +536,10 @@ func TestParseAllElementsFile(t *testing.T) {
 		}
 	}
 
-	// Verify character extensions
+	// Verify character extensions preserved literally
 	for _, elem := range f.Elements {
-		if ch, ok := elem.(Character); ok && ch.Extension != "" {
-			t.Logf("Character: %s (ext: %s)", ch.Name, ch.Extension)
+		if ch, ok := elem.(Character); ok && ch.Text != "" {
+			t.Logf("Character: %s", ch.Text)
 		}
 	}
 }
@@ -584,10 +591,10 @@ func TestParseDualDialogue(t *testing.T) {
 		t.Fatalf("Elements len = %d, want 5", len(f.Elements))
 	}
 
-	// BRICK ^ should be parsed as Character with Name "BRICK ^"
+	// BRICK ^ should be parsed as Character with Text "BRICK ^"
 	char := f.Elements[3].(Character)
-	if char.Name != "BRICK ^" {
-		t.Errorf("Character Name = %q, want %q", char.Name, "BRICK ^")
+	if char.Text != "BRICK ^" {
+		t.Errorf("Character Text = %q, want %q", char.Text, "BRICK ^")
 	}
 }
 

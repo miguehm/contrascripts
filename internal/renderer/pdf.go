@@ -349,10 +349,7 @@ func (r *PDFRenderer) renderCharacter(el parser.Character) {
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(charNameLeft)
 
-	name := strings.ToUpper(el.Name)
-	if el.Extension != "" {
-		name += " " + el.Extension
-	}
+	name := strings.ToUpper(el.Text)
 
 	r.pdf.MultiCell(0, lineSpacing, r.tr(name), "", "L", false)
 	r.pdf.SetFont("Courier", "", fontSize)
@@ -448,7 +445,7 @@ func (r *PDFRenderer) renderForced(el parser.Forced) {
 	case '!':
 		r.renderAction(parser.Action{Text: el.Text})
 	case '@':
-		r.renderCharacter(parser.Character{Name: el.Text})
+		r.renderCharacter(parser.Character{Text: el.Text})
 	default:
 		r.renderAction(parser.Action{Text: el.Text})
 	}
