@@ -46,8 +46,8 @@ func ParseInline(text string) []InlineElement {
 		if isBold {
 			end := strings.Index(remaining[idx+2:], "**")
 			if end < 0 {
-				// No closing ** — treat entire remaining as plain text
-				result = append(result, PlainText{Text: remaining})
+				// No closing ** — treat remaining from idx as plain text
+				result = append(result, PlainText{Text: remaining[idx:]})
 				break
 			}
 			// Recurse into the content between ** markers
@@ -59,8 +59,8 @@ func ParseInline(text string) []InlineElement {
 			// Find closing _ (must not be at start of word for opening marker)
 			end := findClosingItalic(remaining, idx)
 			if end < 0 {
-				// No closing _ — treat entire remaining as plain text
-				result = append(result, PlainText{Text: remaining})
+				// No closing _ — treat remaining from idx as plain text
+				result = append(result, PlainText{Text: remaining[idx:]})
 				break
 			}
 			inner := remaining[idx+1 : end]
@@ -112,6 +112,7 @@ func findClosingItalic(text string, openIdx int) int {
 			}
 			// Skip __ (double underscore is not italic)
 			if i+1 < len(text) && text[i+1] == '_' {
+				i++ // skip both underscores
 				continue
 			}
 			return i

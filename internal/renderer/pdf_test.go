@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/user/fountain/internal/parser"
@@ -499,6 +500,128 @@ func TestIntegrationScreenplayCompleteFile(t *testing.T) {
 	}
 }
 
+// --- Inline Formatting Tests ---
+
+func TestRenderBoldAction(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Action{Text: "He pulls out a **gun** and aims."},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
+func TestRenderItalicDialogue(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Character{Name: "JOHN"},
+			parser.Dialogue{Text: "I think _this_ is wrong."},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
+func TestRenderBoldItalicCentered(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Centered{Text: "**THE END**"},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
+func TestRenderItalicLyric(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Lyric{Text: "_Somewhere_ over the rainbow"},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
+func TestRenderMixedFormattingAction(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Action{Text: "He **grabs** the _red_ folder and **_runs_**."},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
+func TestRenderPlainActionNoFormatting(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Action{Text: "A simple action line with no formatting."},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
+func TestRenderFormattedBlock(t *testing.T) {
+	doc := &parser.Fountain{
+		Elements: []parser.Element{
+			parser.Action{Text: "Line one **bold** text.\nLine two _italic_ text.\nLine three **_bold italic_** text."},
+		},
+	}
+	r := New(doc)
+	var buf bytes.Buffer
+	if err := r.RenderToWriter(&buf); err != nil {
+		t.Fatalf("RenderToWriter failed: %v", err)
+	}
+	data := buf.Bytes()
+	if !bytes.Contains(data, []byte("/Type /Page")) {
+		t.Fatal("PDF missing page objects")
+	}
+}
+
 func renderAndVerify(t *testing.T, doc *parser.Fountain) {
 	t.Helper()
 
@@ -516,6 +639,144 @@ func renderAndVerify(t *testing.T, doc *parser.Fountain) {
 	if string(data[:5]) != "%PDF-" {
 		t.Fatalf("expected PDF header, got: %s", string(data[:min(len(data), 20)]))
 	}
+}
+
+// --- Wrap Styled Tests ---
+
+func TestWrapStyledBasic(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	// Simple text that fits on one line
+	chunks := []styledChunk{{text: "Hello world", bold: false, italic: false}}
+	lines := r.wrapStyled(chunks, 6.0)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	joined := joinLineText(lines[0])
+	if joined != "Hello world" {
+		t.Errorf("unexpected content: %q, want 'Hello world'", joined)
+	}
+}
+
+func TestWrapStyledWordBreak(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	// "one two three" = 13 chars × 0.1in = 1.3in. Use width 1.0 to force break.
+	chunks := []styledChunk{{text: "one two three", bold: false, italic: false}}
+	lines := r.wrapStyled(chunks, 1.0)
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+	// No line should contain a mid-word split
+	for i, line := range lines {
+		joined := joinLineText(line)
+		for _, w := range strings.Fields(joined) {
+			if len(w) > 0 && !strings.HasPrefix(w, " ") && !strings.HasSuffix(w, " ") {
+				// Check this word is not a fragment of any original word
+				if len(w) < 3 {
+					t.Errorf("line %d: suspicious short word %q — possible mid-word split", i, w)
+				}
+			}
+		}
+	}
+}
+
+func TestWrapStyledNewline(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	chunks := []styledChunk{{text: "line1\nline2", bold: false, italic: false}}
+	lines := r.wrapStyled(chunks, 6.0)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines from newline, got %d", len(lines))
+	}
+	if joinLineText(lines[0]) != "line1" {
+		t.Errorf("first line = %q, want 'line1'", joinLineText(lines[0]))
+	}
+	if joinLineText(lines[1]) != "line2" {
+		t.Errorf("second line = %q, want 'line2'", joinLineText(lines[1]))
+	}
+}
+
+func TestWrapStyledBoldChunks(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	chunks := []styledChunk{
+		{text: "plain ", bold: false, italic: false},
+		{text: "bold", bold: true, italic: false},
+		{text: " end", bold: false, italic: false},
+	}
+	lines := r.wrapStyled(chunks, 6.0)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	// Verify mixed styles in the line
+	hasBold := false
+	hasPlain := false
+	for _, seg := range lines[0] {
+		if seg.bold {
+			hasBold = true
+		} else {
+			hasPlain = true
+		}
+	}
+	if !hasBold || !hasPlain {
+		t.Errorf("expected both bold and plain segments, got %v", lines[0])
+	}
+}
+
+func TestWrapStyledAccentedText(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	// Spanish accented text — should never split mid-word
+	chunks := []styledChunk{{text: "la expresión de la rabia", bold: false, italic: false}}
+	lines := r.wrapStyled(chunks, 2.0) // narrow width
+	for i, line := range lines {
+		joined := joinLineText(line)
+		words := strings.Fields(joined)
+		for _, w := range words {
+			// Each word should be a complete word from the original
+			if len(w) > 0 && len(w) < 2 {
+				t.Errorf("line %d: suspicious short word %q — possible mid-word split on accented text", i, w)
+			}
+		}
+	}
+}
+
+func TestWrapStyledForcedSplit(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	// Single word wider than width — should force it on a line, not panic
+	longWord := strings.Repeat("x", 100)
+	chunks := []styledChunk{{text: longWord, bold: false, italic: false}}
+	lines := r.wrapStyled(chunks, 1.0) // width can't fit the word
+	if len(lines) < 1 {
+		t.Fatal("expected at least 1 line for forced split")
+	}
+}
+
+func TestWrapStyledEmptyText(t *testing.T) {
+	doc := &parser.Fountain{}
+	r := New(doc)
+
+	chunks := []styledChunk{{text: "", bold: false, italic: false}}
+	lines := r.wrapStyled(chunks, 6.0)
+	if len(lines) != 0 {
+		t.Errorf("expected 0 lines for empty text, got %d", len(lines))
+	}
+}
+
+func joinLineText(line []styledChunk) string {
+	var b strings.Builder
+	for _, seg := range line {
+		b.WriteString(seg.text)
+	}
+	return b.String()
 }
 
 func min(a, b int) int {

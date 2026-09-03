@@ -230,3 +230,56 @@ func TestParseInlineDoubleUnderscore(t *testing.T) {
 		t.Errorf("expected '__not italic__', got %q", pt.Text)
 	}
 }
+
+func TestParseInlineNoClosingWithPrefix(t *testing.T) {
+	result := ParseInline("hello **world")
+	if len(result) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(result))
+	}
+	pt0, ok := result[0].(PlainText)
+	if !ok || pt0.Text != "hello " {
+		t.Errorf("expected 'hello ', got %v", result[0])
+	}
+	pt1, ok := result[1].(PlainText)
+	if !ok || pt1.Text != "**world" {
+		t.Errorf("expected '**world', got %v", result[1])
+	}
+
+	resultItalic := ParseInline("hello _world")
+	if len(resultItalic) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(resultItalic))
+	}
+	ptI0, ok := resultItalic[0].(PlainText)
+	if !ok || ptI0.Text != "hello " {
+		t.Errorf("expected 'hello ', got %v", resultItalic[0])
+	}
+	ptI1, ok := resultItalic[1].(PlainText)
+	if !ok || ptI1.Text != "_world" {
+		t.Errorf("expected '_world', got %v", resultItalic[1])
+	}
+}
+
+func TestParseInlineItalicBoldNested(t *testing.T) {
+	result := ParseInline("_**bold italic**_")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(result))
+	}
+	italic, ok := result[0].(Italic)
+	if !ok {
+		t.Fatalf("expected Italic, got %T", result[0])
+	}
+	if len(italic.Content) != 1 {
+		t.Fatalf("expected 1 child in Italic, got %d", len(italic.Content))
+	}
+	bold, ok := italic.Content[0].(Bold)
+	if !ok {
+		t.Fatalf("expected Bold child, got %T", italic.Content[0])
+	}
+	if len(bold.Content) != 1 {
+		t.Fatalf("expected 1 child in Bold, got %d", len(bold.Content))
+	}
+	pt, ok := bold.Content[0].(PlainText)
+	if !ok || pt.Text != "bold italic" {
+		t.Errorf("expected 'bold italic', got %v", bold.Content[0])
+	}
+}
