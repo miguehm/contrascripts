@@ -154,7 +154,7 @@ func (r *PDFRenderer) renderTitlePage() {
 	// Zone 1: identity top-center.
 	if tp.Title != "" {
 		r.pdf.SetY(3.0)
-		center(strings.ToUpper(tp.Title))
+		r.renderTitleCentered(tp.Title, center)
 		gap(0.4)
 	}
 	if tp.Credit != "" {
@@ -273,6 +273,42 @@ func (r *PDFRenderer) renderTitlePage() {
 
 	r.pdf.SetLeftMargin(marginLeft)
 	r.pdf.SetRightMargin(marginRight)
+}
+
+func (r *PDFRenderer) renderTitleCentered(raw string, center func(string)) {
+	upper := strings.ToUpper(raw)
+	inlines := parser.ParseInline(upper)
+	chunks := mergeChunks(flattenInline(inlines, false, false))
+	if !hasFormatting(chunks, false, false) {
+		center(upper)
+		return
+	}
+	r.pdf.SetLeftMargin(0)
+	r.pdf.SetRightMargin(0)
+	translated := make([]styledChunk, len(chunks))
+	for i, c := range chunks {
+		translated[i] = styledChunk{text: strings.Replace(r.tr(c.text), "\r", "", -1), bold: c.bold, italic: c.italic}
+	}
+	lines := r.wrapStyled(translated, pageWidth)
+	for _, line := range lines {
+		if line == nil {
+			r.pdf.Ln(lineSpacing)
+			continue
+		}
+		var totalW float64
+		for _, seg := range line {
+			r.pdf.SetFont(fontFamily, seg.style(), fontSize)
+			totalW += r.pdf.GetStringWidth(seg.text)
+		}
+		r.pdf.SetX((pageWidth - totalW) / 2.0)
+		for _, seg := range line {
+			r.pdf.SetFont(fontFamily, seg.style(), fontSize)
+			w := r.pdf.GetStringWidth(seg.text)
+			r.pdf.CellFormat(w, lineSpacing, seg.text, "", 0, "L", false, 0, "")
+		}
+		r.pdf.Ln(lineSpacing)
+	}
+	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
 func seasonEpisodeText(tp parser.TitlePage) string {
