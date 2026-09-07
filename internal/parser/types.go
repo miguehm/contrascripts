@@ -51,6 +51,7 @@ type TitlePage struct {
 	Agent         string
 	Manager       string
 	Address       string
+	SceneNumbers  bool
 	Custom        map[string]string
 }
 

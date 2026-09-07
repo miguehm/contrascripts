@@ -36,9 +36,10 @@ const (
 )
 
 type PDFRenderer struct {
-	pdf *gofpdf.Fpdf
-	doc *parser.Fountain
-	tr  func(string) string
+	pdf      *gofpdf.Fpdf
+	doc      *parser.Fountain
+	tr       func(string) string
+	sceneNum int
 }
 
 func New(doc *parser.Fountain) *PDFRenderer {
@@ -298,6 +299,7 @@ func nonEmpty(parts ...string) []string {
 
 func (r *PDFRenderer) renderElements() {
 	r.pdf.AddPage()
+	r.sceneNum = 0
 
 	for _, el := range r.doc.Elements {
 		r.renderElement(el)
@@ -334,12 +336,39 @@ func (r *PDFRenderer) renderElement(el parser.Element) {
 func (r *PDFRenderer) renderSceneHeading(el parser.SceneHeading) {
 	r.pdf.Ln(0.15)
 	r.pdf.SetFont(fontFamily, "", fontSize)
+	showNum := r.doc.TitlePage.SceneNumbers
+	num := 0
+	if showNum {
+		r.sceneNum++
+		num = r.sceneNum
+	}
+	startY := r.pdf.GetY()
 	r.pdf.SetLeftMargin(charLeft)
 	r.pdf.SetRightMargin(marginRight)
 	r.pdf.SetX(charLeft)
 	r.pdf.MultiCell(0, lineSpacing, r.tr(strings.ToUpper(el.Text)), "", "L", false)
+	endY := r.pdf.GetY()
+	if showNum {
+		r.drawSceneNumber(num, startY)
+		r.pdf.SetY(endY)
+	}
 	r.pdf.Ln(0.15)
 	r.pdf.SetFont(fontFamily, "", fontSize)
+}
+
+// drawSceneNumber writes the scene number in both page margins at the given
+// Y without touching the heading text block.
+func (r *PDFRenderer) drawSceneNumber(num int, y float64) {
+	label := r.tr(fmt.Sprintf("%d", num))
+	r.pdf.SetFont(fontFamily, "", fontSize)
+	r.pdf.SetLeftMargin(0)
+	r.pdf.SetRightMargin(0)
+	r.pdf.SetXY(0.75, y)
+	r.pdf.CellFormat(0.5, lineSpacing, label, "", 0, "R", false, 0, "")
+	r.pdf.SetXY(pageWidth-marginRight+0.15, y)
+	r.pdf.CellFormat(0.5, lineSpacing, label, "", 0, "L", false, 0, "")
+	r.pdf.SetLeftMargin(marginLeft)
+	r.pdf.SetRightMargin(marginRight)
 }
 
 func (r *PDFRenderer) renderAction(el parser.Action) {

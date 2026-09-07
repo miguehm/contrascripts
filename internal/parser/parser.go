@@ -165,8 +165,22 @@ func (p *Parser) assignTitleField(tp *TitlePage, key, value string) {
 		tp.Manager = value
 	case "address":
 		tp.Address = value
+	case "scene numbers", "scene number", "scenenumbers", "scenenumber":
+		tp.SceneNumbers = parseSceneNumbersValue(value)
 	default:
 		tp.Custom[key] = value
+	}
+}
+
+// parseSceneNumbersValue interprets a title page boolean. Accepts
+// true/yes/y/on/1 (case-insensitive); anything else is false so the
+// feature stays disabled by default.
+func parseSceneNumbersValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "y", "on", "1":
+		return true
+	default:
+		return false
 	}
 }
 
