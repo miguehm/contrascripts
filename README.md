@@ -5,6 +5,7 @@ A small Go CLI that parses screenplays in [Fountain](https://fountain.io) format
 - Fountain v1.1 parser: scene headings, action, character, dialogue, parentheticals, transitions, centered text, lyrics, sections, synopses, notes, boneyards, page breaks, forced elements
 - Inline formatting: `**bold**` and `_italic_`, including nested combinations and Unicode-safe wrapping
 - Screenplay-accurate PDF: Courier 12pt, US Letter, correct margins, page numbers from page 2
+- Opt-in scene numbering in both page margins (`scene-numbers: true`, off by default)
 - Professional title page with 3-zone layout plus optional page 2 for synopsis / dedication / disclaimer
 - Flexible metadata: classic `Key: value` title page or YAML frontmatter (`---`), with normalized keys, lists, and custom fields
 - Zero-config CLI with stdin support
@@ -166,7 +167,7 @@ Optional `---` block at the top of the file. More expressive and Obsidian-friend
 
 ```yaml
 ---
-title: LA SEÑAL
+title: "**LA _SEÑAL_**"
 credit: Written by
 author:
   - Sarahi Zepeda Carrera
@@ -181,6 +182,7 @@ Rules:
 - Keys are case-insensitive and normalized: `kebab-case` = `snake_case` = `with spaces` (`revision-color` = `revision_color` = `Revision Color`).
 - Lists with `- ` are joined with `\n`.
 - Unknown keys go to `Custom` and are also rendered on the title page.
+- Only `title` supports inline formatting: `**bold**` and `_italic_`, including nested combinations. It renders centered and uppercased; unclosed markers render literally and `__` is not italic. All other title-page fields render as plain text.
 
 Supported keys and title-page zones:
 
@@ -190,8 +192,24 @@ Supported keys and title-page zones:
 | `logline`, `tagline`, `genre`, `subgenre`, `tone`, `format`, `season`, `episode`, `runtime`, `language`, `comps`, `themes`, `status`, `production-company`, `producer`, `director-attached`, `budget-level`, `source`, `revision` | Middle, centered |
 | `draft-type`, `version`, `revision-color`, `revision-date`, `draft-date`, `pages`, `contact`, `address`, `email`, `phone`, `agent`, `manager`, `copyright`, `wga-registration`, `rights` + custom fields | Bottom (contact block) |
 | `synopsis`, `dedication`, `disclaimer` | Page 2 |
+| `scene-numbers` | Render setting, not printed on the title page |
 
 `revision-color` whitelist: `white | blue | pink | yellow | green | goldenrod`.
+
+### Scene numbers
+
+Disabled by default. Set `scene-numbers: true` in the header to number scenes sequentially (`1`, `2`, …) in the left and right page margins, at the same height as each heading. The heading text itself is untouched. Applies to natural (`INT./EXT.`) and forced (`.`) headings. Accepts `true/yes/y/on/1`; anything else (including absent) means off.
+
+```yaml
+---
+title: LA SEÑAL
+scene-numbers: true
+---
+
+INT. CASA - NOCHE
+
+ Acción.
+```
 
 Full example — see `testdata/extended-frontmatter.fountain`:
 
@@ -263,6 +281,7 @@ Stars fill the void.
 - Margins: 1.5" left, 1.0" top/right/bottom (6.0" usable width)
 - Layout: Character 3.7", Dialogue 2.5"–6.0", Parenthetical 3.1"–5.0", Transition flush right, Action / Scene full width
 - Page numbers top-right from page 2 (title page unnumbered)
+- Scene numbers (when enabled): plain number in both margins, heading text unchanged
 
 ## Project Structure
 
