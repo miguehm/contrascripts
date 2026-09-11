@@ -3,7 +3,7 @@
 A small Go CLI that parses screenplays in [Fountain](https://fountain.io) format and renders a production-style screenplay PDF with a professional title page.
 
 - Fountain v1.1 parser: scene headings, action, character, dialogue, parentheticals, transitions, centered text, lyrics, sections, synopses, notes, boneyards, page breaks, forced elements
-- Inline formatting: `**bold**` and `_italic_`, including nested combinations and Unicode-safe wrapping
+- Inline formatting: `**bold**`, `*italic*` and `_italic_`, including nested combinations and Unicode-safe wrapping
 - Screenplay-accurate PDF: Courier 12pt, US Letter, correct margins, page numbers from page 2
 - Opt-in scene numbering in both page margins (`scene-numbers: true`, off by default)
 - Professional title page with 3-zone layout plus optional page 2 for synopsis / dedication / disclaimer
@@ -78,6 +78,8 @@ Usage: fountain [options] <input.fountain> [output.pdf]
 Options:
   -o string
         output PDF file path
+  -lint
+        print format warnings to stderr
   -h            show help
   -v            show version (fountain v1.0.0)
 ```
@@ -88,6 +90,7 @@ Behavior:
 - If no output is given, `<input>.pdf` is used (`script.fountain` → `script.pdf`).
 - Use `-` as input to read from stdin; default output is `output.pdf`.
 - Exit codes: `0` = ok, `1` = error (missing input, parse/read failure, render failure).
+- Warnings never change the exit code: with `--lint` the PDF is still generated and exit stays `0`.
 
 Examples:
 
@@ -95,9 +98,45 @@ Examples:
 fountain script.fountain -o script.pdf
 fountain -o out.pdf script.fountain
 fountain - < script.fountain
+fountain --lint script.fountain
 fountain --help
 fountain --version
 ```
+
+## Lint (`--lint`)
+
+Fountain is permissive by design: ambiguous lines silently fall back to `Action`
+(or `Character` for all-caps lines after a blank line). `--lint` prints
+diagnostics to `stderr` without changing the PDF:
+
+```bash
+$ fountain --lint script.fountain
+warning: line 3 [UNCLOSED_BOLD]: odd number of ** markers, bold may not be closed
+warning: line 5 [POSSIBLE_TRANSITION]: character cue looks like a transition missing colon (TO:)
+```
+
+| Code | Meaning |
+|---|---|
+| `UNCLOSED_BONEYARD` / `UNCLOSED_NOTE` / `UNCLOSED_FRONTMATTER` | `/*`, `[[` or `---` never closed |
+| `UNCLOSED_BOLD` / `UNCLOSED_ITALIC` | `**`, `*` or `_` marker without closing pair (renders literally) |
+| `POSSIBLE_CHARACTER` | All-caps line parsed as action; add a blank line before it for character, or `!` to force action |
+| `POSSIBLE_TRANSITION` | Line ends with `TO` (missing `:`) or with `TO:` but not uppercase |
+| `POSSIBLE_SCENE` | Line starts with `INT/EXT/EST` but is not a scene heading |
+| `ORPHAN_DIALOGUE` / `ORPHAN_PAREN` | Dialogue or `(parenthetical)` with no character cue before it |
+| `DIALOG_BEFORE_SCENE` | Character or dialogue before the first scene heading |
+| `CHARACTER_NO_DIALOGUE` | Character cue with no dialogue after it |
+| `DUAL_MISMATCH` | `^` must be the last character of the second cue |
+| `SCENE_EMPTY` | Heading with no content before the next heading or EOF |
+| `SCENE_NO_TIME` | Heading without ` - TIME` (e.g. `- DAY`); forced `.` headings are exempt |
+| `TRANSITION_CHAIN` | Two transitions in a row |
+| `BAD_EXTENSION` | Character `(extension)` unclosed or suspiciously long |
+| `BAD_SECTION` / `BAD_SYNOPSIS` / `BAD_PAGEBREAK` | `#`, `=` or `===` with wrong spacing/content |
+| `EMPTY_FORCED` | `@`, `!`, `>`, `~` or `>...<` with no text |
+| `TITLE_MISSING` / `AUTHOR_MISSING` | Title page without `Title:` / `Author:` |
+| `BAD_REVISION_COLOR` / `BAD_SCENE_NUMBERS` | Value outside the accepted set |
+| `LONG_ACTION` / `LONG_DIALOGUE` / `LONG_PAREN` | Block longer than convention (>4 lines action/dialogue, >60 chars paren) |
+| `OVERUSE_CENTERED` / `OVERUSE_LYRIC` / `OVERUSE_PAGEBREAK` / `OVERUSE_TRANSITION` | Element used far above normal frequency |
+| `NAME_INCONSISTENT` | Near-duplicate character names (possible typo); extensions (`V.O.`) and dual `^` are ignored |
 
 ## Supported Fountain Syntax
 
@@ -129,17 +168,12 @@ Inline formatting:
 
 ```fountain
 Steel's face FILLS the *Leupold Mark 4* scope.
-```
-
-Is not valid — use Fountain style:
-
-```fountain
-Steel's face FILLS the **Leupold Mark 4** scope.
 _Permanently_.
 **bold _nested italic_ text**
+***bold italic***
 ```
 
-Rules: `**bold**`, `_italic_`, nesting supported. Unclosed markers render literally. `__` is not italic.
+Rules: `**bold**`, `*italic*`, `_italic_`, `***bold italic***`, nesting supported. Unclosed markers render literally. `__` is not italic. This project treats `_` and `*` as equivalent italics (Fountain spec reserves `_` for underline).
 
 ## Title Page and Frontmatter
 
@@ -182,7 +216,7 @@ Rules:
 - Keys are case-insensitive and normalized: `kebab-case` = `snake_case` = `with spaces` (`revision-color` = `revision_color` = `Revision Color`).
 - Lists with `- ` are joined with `\n`.
 - Unknown keys go to `Custom` and are also rendered on the title page.
-- Only `title` supports inline formatting: `**bold**` and `_italic_`, including nested combinations. It renders centered and uppercased; unclosed markers render literally and `__` is not italic. All other title-page fields render as plain text.
+- Only `title` supports inline formatting: `**bold**`, `*italic*` and `_italic_`, including nested combinations. It renders centered and uppercased; unclosed markers render literally and `__` is not italic. All other title-page fields render as plain text.
 
 Supported keys and title-page zones:
 
@@ -294,7 +328,7 @@ Stars fill the void.
 │   │   ├── types.go         # AST: Fountain, TitlePage, Element + Inline nodes
 │   │   ├── lexer.go         # Line-by-line tokenizer + context rules
 │   │   ├── parser.go        # Tokens -> AST, title page, multi-line handling
-│   │   ├── inline.go        # **bold** / _italic_ parser
+│   │   ├── inline.go        # **bold** / *italic* / _italic_ parser
 │   │   └── *_test.go        # Parser, lexer, inline, title-page tests
 │   └── renderer/
 │       ├── pdf.go           # gofpdf renderer, title page + screenplay layout

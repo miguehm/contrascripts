@@ -17,6 +17,7 @@ const version = "1.0.0"
 func main() {
 	fs := flag.NewFlagSet("fountain", flag.ExitOnError)
 	output := fs.String("o", "", "output PDF file path")
+	lint := fs.Bool("lint", false, "print format warnings to stderr")
 
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "-help" || arg == "--help" {
@@ -50,10 +51,16 @@ func main() {
 		outPath = args[1]
 	}
 
-	doc, err := parseInput(inputPath)
+	raw, doc, err := parseInput(inputPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if *lint {
+		for _, w := range parser.Lint(raw) {
+			fmt.Fprintf(os.Stderr, "warning: line %d [%s]: %s\n", w.Line, w.Code, w.Message)
+		}
 	}
 
 	if outPath == "" {
@@ -77,15 +84,19 @@ func printUsage(fs *flag.FlagSet) {
 	fmt.Fprintf(os.Stderr, "  fountain -                            # read from stdin\n")
 }
 
-func parseInput(inputPath string) (*parser.Fountain, error) {
+func parseInput(inputPath string) (string, *parser.Fountain, error) {
 	if inputPath == "-" {
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			return nil, fmt.Errorf("reading stdin: %w", err)
+			return "", nil, fmt.Errorf("reading stdin: %w", err)
 		}
-		return parser.Parse(string(data)), nil
+		return string(data), parser.Parse(string(data)), nil
 	}
-	return parser.ParseFile(inputPath)
+	data, err := os.ReadFile(inputPath)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(data), parser.Parse(string(data)), nil
 }
 
 func resolveOutputPath(inputPath string) string {

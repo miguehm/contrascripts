@@ -102,6 +102,49 @@ func TestCLIOutputAsPositionalArg(t *testing.T) {
 	}
 }
 
+func TestCLILint(t *testing.T) {
+	root := projectRoot(t)
+	inputPath := filepath.Join(root, "testdata", "minimal.fountain")
+	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
+		t.Skipf("testdata file not found: %v", err)
+	}
+
+	outPath := filepath.Join(t.TempDir(), "lint.pdf")
+
+	cmd := exec.Command("go", "run", ".", "--lint", "-o", outPath, inputPath)
+	cmd.Dir = root
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("CLI --lint failed: %v\nOutput: %s", err, output)
+	}
+
+	if _, err := os.Stat(outPath); os.IsNotExist(err) {
+		t.Fatalf("output PDF was not created with --lint.\nCLI output: %s", output)
+	}
+}
+
+func TestCLILintEmitsWarnings(t *testing.T) {
+	root := projectRoot(t)
+	tmpInput := filepath.Join(t.TempDir(), "warn.fountain")
+	data := "INT. X - DAY\n\n/*\nnever closed\n"
+	if err := os.WriteFile(tmpInput, []byte(data), 0o644); err != nil {
+		t.Fatalf("failed to write temp input: %v", err)
+	}
+	outPath := filepath.Join(t.TempDir(), "warn.pdf")
+
+	cmd := exec.Command("go", "run", ".", "--lint", "-o", outPath, tmpInput)
+	cmd.Dir = root
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("CLI --lint failed: %v\nOutput: %s", err, output)
+	}
+
+	if len(output) == 0 {
+		t.Error("expected warnings on stderr/stdout with --lint")
+	}
+}
 func TestCLINoInput(t *testing.T) {
 	root := projectRoot(t)
 	cmd := exec.Command("go", "run", ".")
