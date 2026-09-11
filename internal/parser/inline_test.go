@@ -283,3 +283,95 @@ func TestParseInlineItalicBoldNested(t *testing.T) {
 		t.Errorf("expected 'bold italic', got %v", bold.Content[0])
 	}
 }
+
+func TestParseInlineStarItalic(t *testing.T) {
+	result := ParseInline("*italic*")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(result))
+	}
+	italic, ok := result[0].(Italic)
+	if !ok {
+		t.Fatalf("expected Italic, got %T", result[0])
+	}
+	if len(italic.Content) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(italic.Content))
+	}
+	pt, ok := italic.Content[0].(PlainText)
+	if !ok || pt.Text != "italic" {
+		t.Errorf("expected 'italic', got %v", italic.Content[0])
+	}
+}
+
+func TestParseInlineTripleBoldItalic(t *testing.T) {
+	result := ParseInline("***bold italic***")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(result))
+	}
+	bold, ok := result[0].(Bold)
+	if !ok {
+		t.Fatalf("expected Bold, got %T", result[0])
+	}
+	if len(bold.Content) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(bold.Content))
+	}
+	italic, ok := bold.Content[0].(Italic)
+	if !ok {
+		t.Fatalf("expected Italic child, got %T", bold.Content[0])
+	}
+	if len(italic.Content) != 1 {
+		t.Fatalf("expected 1 child in Italic, got %d", len(italic.Content))
+	}
+	pt, ok := italic.Content[0].(PlainText)
+	if !ok || pt.Text != "bold italic" {
+		t.Errorf("expected 'bold italic', got %v", italic.Content[0])
+	}
+}
+
+func TestParseInlineStarMixed(t *testing.T) {
+	result := ParseInline("hello *world* **foo**")
+	if len(result) != 4 {
+		t.Fatalf("expected 4 elements, got %d", len(result))
+	}
+	if _, ok := result[1].(Italic); !ok {
+		t.Fatalf("expected Italic[1], got %T", result[1])
+	}
+	if _, ok := result[3].(Bold); !ok {
+		t.Fatalf("expected Bold[3], got %T", result[3])
+	}
+}
+
+func TestParseInlineNoClosingStar(t *testing.T) {
+	result := ParseInline("*no closing")
+	if len(result) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(result))
+	}
+	pt, ok := result[0].(PlainText)
+	if !ok || pt.Text != "*no closing" {
+		t.Errorf("expected '*no closing', got %v", result[0])
+	}
+}
+
+func TestParseInlineStarNotAtWordStart(t *testing.T) {
+	for _, in := range []string{"foo*bar*baz", "2*3", "a * b"} {
+		result := ParseInline(in)
+		if len(result) != 1 {
+			t.Fatalf("input %q: expected 1 element, got %d", in, len(result))
+		}
+		pt, ok := result[0].(PlainText)
+		if !ok || pt.Text != in {
+			t.Errorf("input %q: expected literal, got %v", in, result[0])
+		}
+	}
+}
+
+func TestParseInlineStarDoesNotBreakBold(t *testing.T) {
+	result := ParseInline("**a****b**")
+	if len(result) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(result))
+	}
+	for i, el := range result {
+		if _, ok := el.(Bold); !ok {
+			t.Fatalf("expected Bold[%d], got %T", i, el)
+		}
+	}
+}
