@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // The wasm package needs no special handling here. `make package` stages the
-// two .wasm files, wasm_exec.js and the wrapper into public/fountain, the
+// two .wasm files, wasm_exec.js and the manifest into public/fountain, the
 // assets are served from there untouched, and the app passes
 // `base: '/fountain'` — see src/fountain.js.
 //

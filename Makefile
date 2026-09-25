@@ -45,6 +45,11 @@ wasm:
 	$(WASMENV) go build $(WASMFLAGS) -o $(DIST)/fountain-parser.wasm ./cmd/wasm-parser
 	$(WASMENV) go build $(WASMFLAGS) -o $(DIST)/fountain-pdf.wasm ./cmd/wasm-pdf
 
+# The runtime payload a web project serves. fountain.mjs is deliberately not
+# here: it is source a bundler compiles, and a copy sitting in public/ would
+# only be a second, never-imported version of the same file.
+ASSETS := fountain-parser.wasm fountain-pdf.wasm wasm_exec.js manifest.json
+
 # dist is what a web project actually consumes: the modules plus the glue they
 # cannot run without. `make wasm` alone yields two .wasm files that no browser
 # can instantiate.
@@ -87,15 +92,20 @@ smoke: dist
 	cd web && npm test
 	cd web/vite && npx playwright test
 
-# package stages dist/ into another project's public folder, which is how a
-# frontend consumes the bundle without Go installed over there: its build calls
+# package stages the runtime assets into another project's public folder, which
+# is how a frontend consumes the bundle without Go installed over there: its
+# build calls
 #   make -C ../fountain package DIR=public/fountain
 # The shim stays a plain file in that folder on purpose. Serving it from
 # node_modules instead would need a copy plugin per bundler.
 package: dist
 	@test -n "$(DIR)" || { echo "usage: make package DIR=<dest>"; exit 1; }
 	@mkdir -p $(DIR)
-	cp $(DIST)/* $(DIR)/
+	cp $(addprefix $(DIST)/,$(ASSETS)) $(DIR)/
+	@# Older versions of this target staged fountain.mjs as well. Leaving it
+	@# behind would put a second copy of the wrapper next to the one in the
+	@# bundle, and the smoke test asserts it is not served.
+	@rm -f $(DIR)/fountain.mjs
 
 # sizes reports raw, gzip and brotli footprints, which is the number that
 # decides whether the split into two modules is still worth keeping.
