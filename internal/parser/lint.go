@@ -6,9 +6,9 @@ import (
 )
 
 type Warning struct {
-	Line    int
-	Code    string
-	Message string
+	Line    int    `json:"line"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 func Lint(input string) []Warning {

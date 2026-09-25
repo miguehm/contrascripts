@@ -6,53 +6,54 @@ type Fountain struct {
 	Elements  []Element
 }
 
-// TitlePage holds screenplay metadata.
+// TitlePage holds screenplay metadata. The json tags define the wire format
+// consumed by non-Go renderers such as the web preview.
 type TitlePage struct {
-	Title         string
-	Credit        string
-	Author        string
-	DraftDate     string
-	Contact       string
-	Source        string
-	Revision      string
-	Logline       string
-	Tagline       string
-	Synopsis      string
-	Genre         string
-	Subgenre      string
-	Tone          string
-	Themes        string
-	Comps         string
-	Format        string
-	Season        string
-	Episode       string
-	EpisodeTitle  string
-	Runtime       string
-	Pages         string
-	Language      string
-	Status        string
-	ProdCompany   string
-	Producer      string
-	Director      string
-	Budget        string
-	AdaptedBy     string
-	BasedOn       string
-	Copyright     string
-	WGA           string
-	Rights        string
-	Dedication    string
-	Disclaimer    string
-	DraftType     string
-	Version       string
-	RevisionColor string
-	RevisionDate  string
-	Email         string
-	Phone         string
-	Agent         string
-	Manager       string
-	Address       string
-	SceneNumbers  bool
-	Custom        map[string]string
+	Title         string            `json:"title"`
+	Credit        string            `json:"credit"`
+	Author        string            `json:"author"`
+	DraftDate     string            `json:"draftDate"`
+	Contact       string            `json:"contact"`
+	Source        string            `json:"source"`
+	Revision      string            `json:"revision"`
+	Logline       string            `json:"logline"`
+	Tagline       string            `json:"tagline"`
+	Synopsis      string            `json:"synopsis"`
+	Genre         string            `json:"genre"`
+	Subgenre      string            `json:"subgenre"`
+	Tone          string            `json:"tone"`
+	Themes        string            `json:"themes"`
+	Comps         string            `json:"comps"`
+	Format        string            `json:"format"`
+	Season        string            `json:"season"`
+	Episode       string            `json:"episode"`
+	EpisodeTitle  string            `json:"episodeTitle"`
+	Runtime       string            `json:"runtime"`
+	Pages         string            `json:"pages"`
+	Language      string            `json:"language"`
+	Status        string            `json:"status"`
+	ProdCompany   string            `json:"prodCompany"`
+	Producer      string            `json:"producer"`
+	Director      string            `json:"director"`
+	Budget        string            `json:"budget"`
+	AdaptedBy     string            `json:"adaptedBy"`
+	BasedOn       string            `json:"basedOn"`
+	Copyright     string            `json:"copyright"`
+	WGA           string            `json:"wga"`
+	Rights        string            `json:"rights"`
+	Dedication    string            `json:"dedication"`
+	Disclaimer    string            `json:"disclaimer"`
+	DraftType     string            `json:"draftType"`
+	Version       string            `json:"version"`
+	RevisionColor string            `json:"revisionColor"`
+	RevisionDate  string            `json:"revisionDate"`
+	Email         string            `json:"email"`
+	Phone         string            `json:"phone"`
+	Agent         string            `json:"agent"`
+	Manager       string            `json:"manager"`
+	Address       string            `json:"address"`
+	SceneNumbers  bool              `json:"sceneNumbers"`
+	Custom        map[string]string `json:"custom"`
 }
 
 // Element is the interface implemented by every AST node.
