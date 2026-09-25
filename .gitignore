@@ -1,1 +1,12 @@
-fountain
+# build output
+/bin/
+/dist/
+# Anchored: an unanchored "fountain" also matches cmd/fountain/
+/fountain
+
+# agent tooling: not part of the Go module, and its .go helper scripts would
+# otherwise be compiled by `go build ./...`
+/agent/
+/.agents/
+/.claude/
+/skills-lock.json
