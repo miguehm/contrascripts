@@ -24,14 +24,14 @@ Dependencies (from `go.mod`):
 git clone <repo-url>
 cd fountain
 go mod download
-go build -o fountain .
-./fountain -h
+make build            # -> bin/fountain
+./bin/fountain -h
 ```
 
 Or run without installing:
 
 ```bash
-go run . -h
+go run ./cmd/fountain -h
 ```
 
 ## Quick Start
@@ -76,20 +76,35 @@ fountain testdata/extended-frontmatter.fountain
 Usage: fountain [options] <input.fountain> [output.pdf]
 
 Options:
-  -o string
-        output PDF file path
+  -h	show help
+  -help
+    	show help
   -lint
-        print format warnings to stderr
-  -h            show help
-  -v            show version (fountain v1.0.0)
+    	print format warnings to stderr
+  -o string
+    	output PDF file path
+  -v	show version
+  -version
+    	show version
+
+Examples:
+  fountain script.fountain              # -> script.pdf
+  fountain -o out.pdf script.fountain    # -> out.pdf
+  fountain script.fountain -o out.pdf    # -> out.pdf
+  fountain -                            # read from stdin
 ```
 
 Behavior:
 
+- Flags may appear before, between or after the positional arguments, in any
+  combination. `fountain script.fountain -o out.pdf` and
+  `fountain -o out.pdf script.fountain` are equivalent.
 - If `-o` is omitted and a second positional arg is given, it is used as output.
 - If no output is given, `<input>.pdf` is used (`script.fountain` → `script.pdf`).
 - Use `-` as input to read from stdin; default output is `output.pdf`.
-- Exit codes: `0` = ok, `1` = error (missing input, parse/read failure, render failure).
+- Use `--` to end flag parsing, for an input file whose name starts with `-`.
+- `-h`/`-v` print to stdout; usage shown after a parse error goes to stderr.
+- Exit codes: `0` = ok, `1` = error (missing input, parse/read failure, render failure), `2` = unknown flag.
 - Warnings never change the exit code: with `--lint` the PDF is still generated and exit stays `0`.
 
 Examples:
@@ -97,7 +112,8 @@ Examples:
 ```bash
 fountain script.fountain -o script.pdf
 fountain -o out.pdf script.fountain
-fountain - < script.fountain
+fountain -- -weird-name.fountain
+fountain - -o out.pdf < script.fountain
 fountain --lint script.fountain
 fountain --help
 fountain --version
@@ -321,43 +337,82 @@ Stars fill the void.
 
 ```text
 .
-├── main.go                  # CLI entry point (-o/-h/-v, stdin, output resolution)
-├── go.mod / go.sum
+├── cmd/
+│   ├── fountain/         # CLI entry point (-o/-h/-v, stdin, output resolution)
+│   ├── wasm-parser/      # js/wasm: parse + lint for the browser
+│   └── wasm-pdf/         # js/wasm: PDF export for the browser
 ├── internal/
 │   ├── parser/
-│   │   ├── types.go         # AST: Fountain, TitlePage, Element + Inline nodes
-│   │   ├── lexer.go         # Line-by-line tokenizer + context rules
-│   │   ├── parser.go        # Tokens -> AST, title page, multi-line handling
-│   │   ├── inline.go        # **bold** / *italic* / _italic_ parser
-│   │   └── *_test.go        # Parser, lexer, inline, title-page tests
+│   │   ├── types.go      # AST: Fountain, TitlePage, Element + Inline nodes
+│   │   ├── lexer.go      # Line-by-line tokenizer + context rules
+│   │   ├── parser.go     # Tokens -> AST, title page, multi-line handling
+│   │   ├── inline.go     # **bold** / *italic* / _italic_ parser
+│   │   ├── lint.go       # format warnings (--lint)
+│   │   ├── json.go       # AST -> JSON wire format for non-Go renderers
+│   │   ├── jsonenc.go    # minimal reflect-based JSON encoder
+│   │   └── *_test.go     # Parser, lexer, inline, lint, JSON tests
 │   └── renderer/
-│       ├── pdf.go           # gofpdf renderer, title page + screenplay layout
-│       ├── fonts.go         # Courier Prime embedding
-│       └── pdf_test.go      # Structural PDF tests
-├── testdata/
-│   ├── minimal.fountain
-│   ├── all-elements.fountain
-│   ├── screenplay-complete.fountain
-│   └── extended-frontmatter.fountain
+│       ├── pdf.go        # gofpdf renderer, title page + screenplay layout
+│       ├── fonts.go      # Courier Prime embedding
+│       └── pdf_test.go   # Structural PDF tests
+├── testdata/             # .fountain fixtures
+├── Makefile              # build / check / wasm / sizes
 └── README.md
 ```
 
 Pipeline: `Lexer.Tokenize` → `Parser.Parse` / `ParseFile` → `ParseInline` → `renderer.New(doc).RenderToFile/RenderToWriter`.
 
+The same `internal/parser` and `internal/renderer` packages back all three
+commands. `internal/` keeps them shareable inside the module without exposing
+them as public API.
+
+## WebAssembly
+
+```bash
+make wasm     # -> dist/fountain-parser.wasm, dist/fountain-pdf.wasm
+make sizes    # raw / gzip / brotli footprint of both
+```
+
+`fountain-parser` bundles only the parser and linter, so it is small enough to
+load on first paint. `fountain-pdf` adds gofpdf and the four embedded Courier
+Prime faces, and is heavier, so it is meant to be loaded on demand.
+
+| Module | raw | gzip | brotli |
+|---|---|---|---|
+| `fountain-parser` | 2 880 336 | 822 873 | 629 722 |
+| `fountain-pdf` | 6 773 655 | 1 900 740 | 1 391 917 |
+
+The floor for any `js/wasm` binary here is ~1.97 MB, which is the Go runtime
+plus `syscall/js` alone. `internal/parser` uses a small reflect-based JSON
+encoder (`jsonenc.go`) rather than `encoding/json`, which would add ~2.4 MB.
+
 ## Testing
 
 ```bash
+make check    # gofmt, native + wasm go vet, go test
 go test ./...
-go vet ./...
-gofmt -l .
 ```
 
 Test strategy:
 
-- Unit tests per element type (parser, lexer, inline).
+- Unit tests per element type (parser, lexer, inline, lint, JSON).
 - Integration tests with real `.fountain` files in `testdata/`.
 - Structural PDF tests (header, EOF, page objects) — no golden PDFs because `gofpdf` embeds non-deterministic timestamps/metadata.
-- End-to-end CLI tests (`main_test.go`).
+- Exhaustive in-process tests of the flag/positional matrix (`TestParseArgs`),
+  covering flags before, between and after positionals, `--` and `-` handling,
+  and the long flag spellings.
+- End-to-end CLI tests (`cmd/fountain/main_test.go`) that run a real binary.
+  `TestMain` builds it once into a temp dir instead of shelling out to
+  `go run` per case, so the suite is not dominated by repeated compilation.
+  Cleanup is explicit rather than deferred, because `os.Exit` skips defers.
+
+`testdata/` fixtures are versioned, so a missing one fails the test rather
+than skipping it: an earlier `t.Skipf` there silently dropped all CLI coverage
+when the package moved and stopped resolving the module root.
+
+Note that `cmd/wasm-*` carry a `//go:build wasm` tag, so a plain `go vet ./...`
+on Linux skips them. `make check` runs a `GOOS=js GOARCH=wasm` pass to keep
+them type-checked.
 
 ## License
 
