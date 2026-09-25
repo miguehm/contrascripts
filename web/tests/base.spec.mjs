@@ -43,3 +43,27 @@ test('the PDF module loads from an explicit base too', async ({ page }) => {
 
   expect(magic).toBe('%PDF-')
 })
+
+test('uses a wasm_exec.js the page already loaded', async ({ page }) => {
+  // The escape hatch the README documents for a CSP that forbids injecting
+  // scripts. It is a separate code path from ensureGo, which is the branch
+  // every other test here takes, so nothing else would notice it breaking.
+  const errors = []
+  page.on('pageerror', (err) => errors.push(String(err)))
+
+  await page.goto('/web/harness.html')
+  await page.addScriptTag({ url: '/dist/wasm_exec.js' })
+
+  const result = await page.evaluate(async () => {
+    const { createFountain } = await import('/dist/fountain.mjs')
+    if (typeof globalThis.Go !== 'function') return { injected: false }
+    const fountain = await createFountain({ injectWasmExec: false })
+    return {
+      injected: true,
+      title: fountain.parse('Title: T\n\nEXT. CASA - DIA\n\nTexto.\n').titlePage.title,
+    }
+  })
+
+  expect(result).toEqual({ injected: true, title: 'T' })
+  expect(errors).toEqual([])
+})

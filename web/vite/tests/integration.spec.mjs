@@ -45,13 +45,18 @@ test('boots once, parses, lints and exports', async ({ page }) => {
 
   // The assets were fetched from the staged public/fountain folder at their
   // own URLs, which is what the explicit `base` option points at. The wrapper
-  // is deliberately not on this list: it is compiled into the bundle.
+  // is deliberately not on this list: it is compiled into the bundle, and
+  // `make package` does not stage a second copy of it into public/.
   for (const file of ['/fountain/wasm_exec.js', '/fountain/fountain-parser.wasm']) {
     expect(
       requested.some((url) => url.includes(file)),
       `expected ${file} to be requested, got ${JSON.stringify(requested)}`,
     ).toBe(true)
   }
+  expect(
+    requested.some((url) => url.includes('/fountain/fountain.mjs')),
+    'the wrapper was served from public/ instead of compiled into the bundle',
+  ).toBe(false)
 
   // The heavy module is fetched when the button is pressed, not on first paint.
   expect(requested.some((url) => url.includes('/fountain/fountain-pdf.wasm'))).toBe(false)
@@ -59,9 +64,6 @@ test('boots once, parses, lints and exports', async ({ page }) => {
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download PDF' }).click()
   expect((await download).suggestedFilename()).toBe('script.pdf')
-  expect(requested.some((url) => url.includes('/fountain/fountain-pdf.wasm'))).toBe(true)
-
-  // The heavy module is fetched when the button is pressed, not on first paint.
   expect(requested.some((url) => url.includes('/fountain/fountain-pdf.wasm'))).toBe(true)
 
   expect(net.failed, 'requests failed').toEqual([])
