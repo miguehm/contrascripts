@@ -9,7 +9,7 @@ A small Go implementation that parses screenplays in [Fountain](https://fountain
 - Professional title page with 3-zone layout plus optional page 2 for synopsis / dedication / disclaimer
 - Flexible metadata: classic `Key: value` title page or YAML frontmatter (`---`), with normalized keys, lists, and custom fields
 - Zero-config CLI with stdin support
-- Browser modules with a JS wrapper, a live preview page and a real-browser smoke test — see [WebAssembly](#webassembly)
+- Browser modules with a JS wrapper, TypeScript declarations, a live preview page and a real-browser smoke test — see [WebAssembly](#webassembly)
 
 ## Requirements
 
@@ -359,9 +359,12 @@ Stars fill the void.
 ├── testdata/             # .fountain fixtures
 ├── web/
 │   ├── fountain.mjs      # JS wrapper: boots wasm_exec.js, lazy-loads PDF
+│   ├── fountain.d.ts     # its types, for a TypeScript frontend
+│   ├── dist-package.json # template for dist/package.json (version injected)
 │   ├── index.html        # live preview page, no build step
 │   ├── serve.mjs         # static server for the smoke test
-│   ├── tests/            # Playwright specs that run the modules in Chromium
+│   ├── tests/            # Playwright specs: the modules in Chromium, the
+│   │                     # packaging contract in Node
 │   └── vite/             # React + Vite consumer, run in dev and in build
 ├── Makefile              # build / check / wasm / dist / package / sizes / smoke
 └── README.md
@@ -392,7 +395,9 @@ globals on `globalThis`. `dist/` is the complete set:
 | `fountain-parser.wasm` | parser + linter, no fonts, no PDF engine |
 | `fountain-pdf.wasm` | gofpdf + four embedded Courier Prime faces |
 | `wasm_exec.js` | Go's runtime shim, copied out of `GOROOT` — **required** |
-| `fountain.mjs` | typed JS wrapper over the globals |
+| `fountain.mjs` | JS wrapper over the globals |
+| `fountain.d.ts` | the wrapper's types, for a frontend that cannot read JSDoc |
+| `package.json` | makes the folder a package: `exports`, `types`, the CLI's version |
 | `manifest.json` | which Go produced the modules, and their sha256 |
 
 `wasm_exec.js` is never committed: it must be the one shipped with the toolchain
@@ -436,9 +441,13 @@ framework — and is the intended shape of a consumer.
 make -C ../fountain package DIR=public/fountain
 ```
 
-That stages the five files into your `public/` folder, where a bundler serves
-them untouched. `web/vite/` is a working React + Vite consumer wired exactly
-this way, and it is exercised by `make smoke` in both `dev` and `build`.
+That stages the four runtime assets — the two `.wasm` files, `wasm_exec.js` and
+the manifest — into your `public/` folder, where a bundler serves them
+untouched. It deliberately does **not** stage `fountain.mjs`: a second copy
+sitting in `public/` would be a file the app never imports, and the Vite
+integration test asserts it is not served. `web/vite/` is a working React +
+Vite consumer wired exactly this way, and it is exercised by `make smoke` in
+both `dev` and `build`.
 
 **Keep the wrapper in source and the heavy files in `public/`.** A bundler
 compiles your source, so `fountain.mjs` ends up inside a chunk whose
@@ -462,6 +471,52 @@ wrapper in source sidesteps the whole thing. Vite also prints a warning that
 `new URL('.', import.meta.url) doesn't exist at build time` — that one is
 expected here, it is the wrapper resolving itself at runtime.
 
+**TypeScript.** `fountain.d.ts` sits next to the wrapper in `dist/`, so
+`tsc` picks it up from the same path you import the `.mjs` by, or through a
+`paths` entry if you copied it into your own tree:
+
+```jsonc
+// tsconfig.json
+{
+  "compilerOptions": {
+    "paths": { "fountain": ["./fountain/dist/fountain.mjs"] }
+  }
+}
+```
+
+It is hand-written, because nothing in a browser project can compile a Go
+struct into a `.d.ts`. Two tests keep it honest: `internal/parser` asserts every
+`TitlePage` field on the wire and every element type is declared, and
+`web/tests/package.spec.mjs` asserts every typedef in the wrapper has a
+declaration and that `dist/` ships a current copy of both files.
+
+**It is a browser module.** `createFountain()` injects a `<script>` for the
+shim and `fetch`es the `.wasm`, so it needs a `document`. Called during an SSR
+pass, a prerender or in plain Node it rejects with a `FountainError` that says
+exactly that, instead of failing later as a `fetch` against a `file://` URL or
+as a 404 on the shim. Load it from client code:
+
+```js
+// React: a dynamic import inside the effect, not a top-level import
+useEffect(() => {
+  let alive = true
+  import('../../fountain/dist/fountain.mjs').then(async (m) => {
+    const f = await m.createFountain({ base: '/fountain' })
+    if (alive) setFountain(f)
+  })
+  return () => {
+    alive = false
+  }
+}, [])
+```
+
+```jsx
+// Next.js: keep the whole editor out of the server render
+'use client'
+import dynamic from 'next/dynamic'
+const Editor = dynamic(() => import('./Editor'), { ssr: false })
+```
+
 **Boot once and share.** `createFountain()` is async and starts a Go runtime,
 so calling it in an effect means one runtime per mount — and React StrictMode
 double-invokes effects in development, while Vite re-evaluates modules on HMR.
@@ -478,7 +533,9 @@ export function loadFountain() {
 
 `Symbol.for` is the same symbol across realms and survives module re-evaluation.
 `web/vite/src/fountain.js` is the full version, and its smoke test asserts the
-runtime count stays at 1.
+runtime count stays at 1. Note what that ceiling means: there is no `dispose()`,
+so the heap lives as long as the page. One instance per document, and no way to
+free it early.
 
 **`parse` and `lint` are synchronous** and block the main thread. On a long
 script that shows up as jank while typing; collapsing keystrokes into one call
@@ -488,6 +545,74 @@ and it is why `renderPDF` is the only asynchronous call.
 Serving `.wasm` as `application/wasm` lets the browser stream-compile it. The
 wrapper falls back to a plain fetch when a server gets that wrong, so a
 misconfigured CDN costs startup speed rather than correctness.
+
+### Without a build step
+
+`dist/` is also the folder to publish as-is: no bundler, no `base`, no import
+map, because the wrapper finds its own `.wasm` siblings from its own URL. Copy
+it to a static host and import it by path.
+
+```html
+<script type="module">
+  import { createFountain } from '/fountain/fountain.mjs'
+
+  const fountain = await createFountain()
+  const doc = fountain.parse('Title: T\n\nEXT. CASA - DIA\n\nTexto.\n')
+  document.querySelector('#out').textContent = JSON.stringify(doc, null, 2)
+</script>
+```
+
+`web/index.html` is a fuller version of the same shape: two panes, no
+framework, and the intended starting point.
+
+Two host details are worth getting right. Neither breaks anything — the wrapper
+falls back — but both cost startup speed.
+
+| | |
+|---|---|
+| `.wasm` served as `application/wasm` | the browser stream-compiles it. Without the type, `instantiateStreaming` throws and the whole 2.9 MB is fetched before compiling |
+| `script-src` includes `'wasm-unsafe-eval'` | a strict CSP blocks WebAssembly compilation outright. The shim itself needs no `unsafe-eval` — it uses no `eval` |
+
+```nginx
+# nginx: both of the above, and the binaries are immutable
+types { application/wasm wasm; }
+location /fountain/ { add_header Cache-Control "public, max-age=31536000, immutable"; }
+```
+
+```json
+// Vercel: vercel.json — .wasm already gets the right content-type here
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "script-src 'self' 'wasm-unsafe-eval'" }
+      ]
+    }
+  ]
+}
+```
+
+```text
+# Netlify: _headers — same header, same file
+/*
+  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'
+```
+
+Vercel and Netlify both serve `.wasm` as `application/wasm` already; the
+nginx block is for Apache, a plain filesystem, or anything hand-rolled, where
+`application/octet-stream` costs the whole download before compiling.
+
+If the CSP also forbids injecting scripts, include the shim in the page and
+tell the wrapper to use it:
+
+```html
+<script src="/fountain/wasm_exec.js"></script>
+<script type="module">
+  import { createFountain } from '/fountain/fountain.mjs'
+  const fountain = await createFountain({ injectWasmExec: false })
+</script>
+```
 
 ### Calling the globals directly
 
@@ -595,9 +720,21 @@ Test strategy:
   `vite build && vite preview`, because those are different code paths and
   passing one is no evidence about the other — the wrapper only loses its
   `import.meta.url` in the built one. It asserts a single runtime survives
-  StrictMode, that the assets are fetched from `public/` and not bundled, and
-  that no request 404s. Two of the bugs it exists to catch were in the wrapper
-  rather than the bundler, both from `base` handling.
+  StrictMode, that the assets are fetched from `public/` and not bundled, that
+  the wrapper is *not* among them, and that no request 404s. Two of the bugs it
+  exists to catch were in the wrapper rather than the bundler, both from `base`
+  handling.
+- A Node-side packaging spec (`web/tests/package.spec.mjs`) for the failures a
+  browser cannot show: a file missing from `dist/`, a stale copy of the wrapper,
+  a `package.json` pointing at a specifier that is not there, a version that
+  disagrees with the CLI's, and `createFountain()` rejecting outside a browser
+  with an error that names the cause. It also checks the `.d.ts` against the
+  wrapper's JSDoc, which nothing else compiles.
+- `internal/parser/json_types_test.go` covers the other half of the types
+  contract, from the side that has the truth: every `TitlePage` field the wire
+  format emits is declared in `fountain.d.ts`, nothing is declared that is not
+  emitted, no field gained an `omitempty`, and every element type the parser can
+  produce is in the `ElementType` union.
 
 `testdata/` fixtures are versioned, so a missing one fails the test rather
 than skipping it: an earlier `t.Skipf` there silently dropped all CLI coverage
