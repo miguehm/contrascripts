@@ -10,3 +10,14 @@
 /.agents/
 /.claude/
 /skills-lock.json
+
+# browser smoke test deps
+/web/node_modules/
+/web/test-results/
+/web/playwright-report/
+
+# Vite integration fixture: deps and build output
+/web/vite/node_modules/
+/web/vite/dist/
+# staged by `make package DIR=...`, never committed
+/web/vite/public/fountain/

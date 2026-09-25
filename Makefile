@@ -2,10 +2,16 @@ BIN     := bin
 DIST    := dist
 WASMENV := GOOS=js GOARCH=wasm
 WASMFLAGS := -trimpath -ldflags="-s -w"
+GOVERSION := $(shell go env GOVERSION)
+# wasm_exec.js is not a build artefact: it is the mandatory Go<->JS runtime shim,
+# and it must be the one shipped with the toolchain that compiled the .wasm.
+# A mismatched copy makes go.run() fail at init, so it is never committed and
+# always copied straight out of GOROOT.
+WASM_EXEC := $(shell go env GOROOT)/lib/wasm/wasm_exec.js
 
-.PHONY: all build test vet fmt check wasm sizes clean
+.PHONY: all build test vet fmt check wasm dist manifest sizes clean
 
-all: check wasm
+all: check dist
 
 # build compiles the CLI into bin/, keeping the module root free of binaries.
 build:
@@ -35,6 +41,35 @@ wasm:
 	mkdir -p $(DIST)
 	$(WASMENV) go build $(WASMFLAGS) -o $(DIST)/fountain-parser.wasm ./cmd/wasm-parser
 	$(WASMENV) go build $(WASMFLAGS) -o $(DIST)/fountain-pdf.wasm ./cmd/wasm-pdf
+
+# dist is what a web project actually consumes: the modules plus the glue they
+# cannot run without. `make wasm` alone yields two .wasm files that no browser
+# can instantiate.
+dist: wasm
+	cp $(WASM_EXEC) $(DIST)/wasm_exec.js
+	cp web/fountain.mjs $(DIST)/fountain.mjs
+	@$(MAKE) --no-print-directory manifest
+	@printf 'dist/ is ready: %s modules, glue from %s\n' "$$(ls $(DIST)/*.wasm | wc -l)" "$(GOVERSION)"
+
+# manifest records which Go produced the modules. wasm_exec.js is pinned to that
+# same toolchain, so a mismatch between the two is detectable without rebuilding.
+manifest:
+	@{ \
+		printf '{\n'; \
+		printf '  "goVersion": "%s",\n' "$(GOVERSION)"; \
+		printf '  "wasmExec": "wasm_exec.js",\n'; \
+		printf '  "modules": {\n'; \
+		n=0; \
+		for f in $(DIST)/*.wasm; do \
+			n=$$((n + 1)); \
+			[ $$n -gt 1 ] && printf ',\n'; \
+			printf '    "%s": { "bytes": %s, "sha256": "%s" }' \
+				"$$(basename $$f)" \
+				"$$(wc -c < $$f)" \
+				"$$(sha256sum $$f | cut -d' ' -f1)"; \
+		done; \
+		printf '\n  }\n}\n'; \
+	} > $(DIST)/manifest.json
 
 # sizes reports raw, gzip and brotli footprints, which is the number that
 # decides whether the split into two modules is still worth keeping.
