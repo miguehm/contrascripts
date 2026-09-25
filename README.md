@@ -1,6 +1,6 @@
 # fountain — `.fountain` → Screenplay PDF
 
-A small Go CLI that parses screenplays in [Fountain](https://fountain.io) format and renders a production-style screenplay PDF with a professional title page.
+A small Go implementation that parses screenplays in [Fountain](https://fountain.io) format and renders a production-style screenplay PDF with a professional title page. It ships three front ends over the same `internal/` packages: a CLI, and two `js/wasm` modules for the browser (parse + lint, and PDF export).
 
 - Fountain v1.1 parser: scene headings, action, character, dialogue, parentheticals, transitions, centered text, lyrics, sections, synopses, notes, boneyards, page breaks, forced elements
 - Inline formatting: `**bold**`, `*italic*` and `_italic_`, including nested combinations and Unicode-safe wrapping
@@ -9,6 +9,7 @@ A small Go CLI that parses screenplays in [Fountain](https://fountain.io) format
 - Professional title page with 3-zone layout plus optional page 2 for synopsis / dedication / disclaimer
 - Flexible metadata: classic `Key: value` title page or YAML frontmatter (`---`), with normalized keys, lists, and custom fields
 - Zero-config CLI with stdin support
+- Browser modules with a JS wrapper, a live preview page and a real-browser smoke test — see [WebAssembly](#webassembly)
 
 ## Requirements
 
@@ -356,7 +357,13 @@ Stars fill the void.
 │       ├── fonts.go      # Courier Prime embedding
 │       └── pdf_test.go   # Structural PDF tests
 ├── testdata/             # .fountain fixtures
-├── Makefile              # build / check / wasm / sizes
+├── web/
+│   ├── fountain.mjs      # JS wrapper: boots wasm_exec.js, lazy-loads PDF
+│   ├── index.html        # live preview page, no build step
+│   ├── serve.mjs         # static server for the smoke test
+│   ├── tests/            # Playwright specs that run the modules in Chromium
+│   └── vite/             # React + Vite consumer, run in dev and in build
+├── Makefile              # build / check / wasm / dist / package / sizes / smoke
 └── README.md
 ```
 
@@ -369,27 +376,198 @@ them as public API.
 ## WebAssembly
 
 ```bash
-make wasm     # -> dist/fountain-parser.wasm, dist/fountain-pdf.wasm
-make sizes    # raw / gzip / brotli footprint of both
+make dist     # -> dist/ (the folder a web project consumes)
+make package DIR=public/fountain   # stage it into another project
+make smoke    # build, then run both modules in a real browser
+make sizes    # raw / gzip / brotli footprint of both modules
 ```
 
-`fountain-parser` bundles only the parser and linter, so it is small enough to
-load on first paint. `fountain-pdf` adds gofpdf and the four embedded Courier
-Prime faces, and is heavier, so it is meant to be loaded on demand.
+`make dist` is the target that matters. `make wasm` on its own emits two `.wasm`
+files that **no browser can instantiate**: a `js/wasm` binary is not a library,
+it is a standalone module that needs Go's runtime shim and registers its API as
+globals on `globalThis`. `dist/` is the complete set:
+
+| File | What it is |
+|---|---|
+| `fountain-parser.wasm` | parser + linter, no fonts, no PDF engine |
+| `fountain-pdf.wasm` | gofpdf + four embedded Courier Prime faces |
+| `wasm_exec.js` | Go's runtime shim, copied out of `GOROOT` — **required** |
+| `fountain.mjs` | typed JS wrapper over the globals |
+| `manifest.json` | which Go produced the modules, and their sha256 |
+
+`wasm_exec.js` is never committed: it must be the one shipped with the toolchain
+that compiled the `.wasm`, and a mismatched copy fails at `go.run()` with an
+error that does not mention the cause. `manifest.json` records the pairing, and
+`make smoke` fails if it ever drifts.
+
+### Using it
+
+`fountain.mjs` resolves its `.wasm` siblings from its own URL, so a consumer
+copies the whole folder and needs no arguments:
+
+```js
+import { createFountain } from './fountain.mjs'
+
+const fountain = await createFountain()
+
+fountain.parse(text)              // -> Document   (sync)
+fountain.lint(text)               // -> Warning[]  (sync)
+await fountain.renderPDF(text)    // -> Uint8Array (async, lazy 6.7 MB load)
+```
+
+Both `parse` and `lint` are synchronous: the Go globals return immediately.
+`renderPDF` is the only asynchronous call, because it fetches its module on
+first use. The wrapper also:
+
+- parses the JSON the globals return, so you get objects rather than strings
+- throws `FountainError` where the raw globals return `null` and log to the
+  console, so failures are catchable
+- falls back from `instantiateStreaming` when the server sends the wrong
+  `Content-Type` for `.wasm`
+
+`web/index.html` is a working live preview — two panes, no build step, no
+framework — and is the intended shape of a consumer.
+
+### Using it from a frontend
+
+`dist/` is not committed, so a frontend gets it from the build:
+
+```bash
+make -C ../fountain package DIR=public/fountain
+```
+
+That stages the five files into your `public/` folder, where a bundler serves
+them untouched. `web/vite/` is a working React + Vite consumer wired exactly
+this way, and it is exercised by `make smoke` in both `dev` and `build`.
+
+**Keep the wrapper in source and the heavy files in `public/`.** A bundler
+compiles your source, so `fountain.mjs` ends up inside a chunk whose
+`import.meta.url` is no longer a sibling of the `.wasm` files. It therefore
+needs to be told where they are:
+
+```js
+import { createFountain } from '../../../fountain/dist/fountain.mjs' // or your path
+
+const fountain = await createFountain({ base: '/fountain' })
+```
+
+`base` is a URL, resolved against the page, so a site-absolute path is fine.
+Without it the wrapper falls back to its own location, which is correct only
+when nothing rewrote it — that is, when you serve it unbundled.
+
+A Vite app cannot import a `.mjs` out of `public/` at all: it rejects the
+import, and the `?url` escape hatch it suggests in the error answers with the
+SPA `index.html` and a `200`, so the module silently receives HTML. Keeping the
+wrapper in source sidesteps the whole thing. Vite also prints a warning that
+`new URL('.', import.meta.url) doesn't exist at build time` — that one is
+expected here, it is the wrapper resolving itself at runtime.
+
+**Boot once and share.** `createFountain()` is async and starts a Go runtime,
+so calling it in an effect means one runtime per mount — and React StrictMode
+double-invokes effects in development, while Vite re-evaluates modules on HMR.
+A module-level variable is not enough, because HMR resets it:
+
+```js
+const INSTANCE = Symbol.for('fountain.instance')
+
+export function loadFountain() {
+  globalThis[INSTANCE] ??= boot()
+  return globalThis[INSTANCE]
+}
+```
+
+`Symbol.for` is the same symbol across realms and survives module re-evaluation.
+`web/vite/src/fountain.js` is the full version, and its smoke test asserts the
+runtime count stays at 1.
+
+**`parse` and `lint` are synchronous** and block the main thread. On a long
+script that shows up as jank while typing; collapsing keystrokes into one call
+per animation frame is enough. The same caveat applies to the globals directly,
+and it is why `renderPDF` is the only asynchronous call.
+
+Serving `.wasm` as `application/wasm` lets the browser stream-compile it. The
+wrapper falls back to a plain fetch when a server gets that wrong, so a
+misconfigured CDN costs startup speed rather than correctness.
+
+### Calling the globals directly
+
+If you would rather skip the wrapper, the three globals are available on
+`globalThis` once each module has run. Each needs its own `Go` instance, and the
+return values differ: `fountainParse` and `fountainLint` return **JSON strings**,
+`fountainRenderPDF` returns a `Uint8Array`, and a failure is `null` plus a
+`console.error` rather than a thrown exception.
+
+```js
+const go = new Go()
+go.run(instance)                 // not awaited: main() ends in select{}
+const doc = JSON.parse(globalThis.fountainParse(text))
+```
+
+### Two modules, two runtimes
+
+Each compiled module is its own Go runtime with its own heap. They coexist in
+one page — `make smoke` asserts it, loading the parser, then the PDF into the
+same document, and checking the parser still answers afterwards — but they do
+not share memory or a scheduler, so a session that exports pays for two heaps.
+
+The split is what keeps `fountain-pdf` off the first paint, and that is the
+whole point of it:
 
 | Module | raw | gzip | brotli |
 |---|---|---|---|
-| `fountain-parser` | 2 880 336 | 822 873 | 629 722 |
-| `fountain-pdf` | 6 773 655 | 1 900 740 | 1 391 917 |
+| `fountain-parser` | 2 880 388 | 822 908 | 628 948 |
+| `fountain-pdf` | 6 773 655 | 1 900 750 | 1 392 381 |
 
-The floor for any `js/wasm` binary here is ~1.97 MB, which is the Go runtime
-plus `syscall/js` alone. `internal/parser` uses a small reflect-based JSON
-encoder (`jsonenc.go`) rather than `encoding/json`, which would add ~2.4 MB.
+Fusing them would put gofpdf and the embedded fonts on the critical path for
+users who only ever type and preview. `make sizes` exists to keep that
+trade-off honest: it is the number that says whether the split is still worth
+keeping. The floor for any `js/wasm` binary here is ~1.97 MB, which is the Go
+runtime plus `syscall/js` alone. `internal/parser` uses a small reflect-based
+JSON encoder (`jsonenc.go`) rather than `encoding/json`, which would add ~2.4 MB.
+
+### JSON wire format
+
+`parse` returns a `Document`. `type` is the lowercase element name, matching
+what the PDF draws — a forced `.` scene heading comes back as `sceneHeading`,
+not as a `prefix`.
+
+```jsonc
+{
+  "titlePage": { "title": "LA SEÑAL", "author": "Jane Doe", "custom": {} },
+  "elements": [
+    {
+      "type": "sceneHeading",       // action, character, dialogue, parenthetical,
+      "text": "EXT. SPACE - NIGHT", // transition, centered, lyric, section,
+      "uppercase": true             // synopsis, pageBreak, note, boneyard
+    },
+    {
+      "type": "action",
+      "text": "A **loud** bang.",
+      "baseItalic": true,
+      "inline": [
+        { "type": "text",  "text": "A " },
+        { "type": "bold",  "content": [{ "type": "text", "text": "loud" }] },
+        { "type": "text",  "text": " bang." }
+      ]
+    }
+  ]
+}
+```
+
+- `uppercase` and `baseItalic` are **hints**, not transformations: `text` is
+  exactly as parsed, and a renderer is expected to apply them the way the PDF
+  does.
+- `inline` is present only for the element types where the PDF honours `**bold**`
+  and `*italic*`.
+- `titlePage` and `custom` always encode as an object, and a clean `lint`
+  encodes as `[]`. Both are guaranteed rather than left to Go's nil encoding,
+  because JavaScript consumers index and iterate them unguarded.
 
 ## Testing
 
 ```bash
 make check    # gofmt, native + wasm go vet, go test
+make smoke    # make dist, then the browser suites
 go test ./...
 ```
 
@@ -405,6 +583,21 @@ Test strategy:
   `TestMain` builds it once into a temp dir instead of shelling out to
   `go run` per case, so the suite is not dominated by repeated compilation.
   Cleanup is explicit rather than deferred, because `os.Exit` skips defers.
+- A browser smoke test (`web/`, Playwright) for everything the Go compiler
+  cannot see. It runs in Chromium because a `js/wasm` binary that compiles is
+  not yet a binary that runs: the failure modes are a `wasm_exec.js` that no
+  longer matches the toolchain, and the two modules fighting over `globalThis`.
+  The spec is a single serial run on one page, loading the parser and then the
+  PDF into the same document, because splitting it across pages would hide the
+  failure it exists to catch. A second spec drives `web/index.html` end to end,
+  so the usage this README documents is itself tested.
+- A Vite integration fixture (`web/vite/`) run in **both** `vite dev` and
+  `vite build && vite preview`, because those are different code paths and
+  passing one is no evidence about the other — the wrapper only loses its
+  `import.meta.url` in the built one. It asserts a single runtime survives
+  StrictMode, that the assets are fetched from `public/` and not bundled, and
+  that no request 404s. Two of the bugs it exists to catch were in the wrapper
+  rather than the bundler, both from `base` handling.
 
 `testdata/` fixtures are versioned, so a missing one fails the test rather
 than skipping it: an earlier `t.Skipf` there silently dropped all CLI coverage
