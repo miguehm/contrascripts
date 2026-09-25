@@ -65,8 +65,16 @@ func ToJSON(doc *Fountain) []byte {
 }
 
 // ToWarningsJSON marshals lint warnings to their JSON wire format.
+//
+// A clean script yields an empty array, never null: consumers iterate the
+// result without a guard, and ToDocument already sets the same expectation for
+// Document.elements.
 func ToWarningsJSON(input string) []byte {
-	return appendJSON(nil, Lint(input))
+	warnings := Lint(input)
+	if warnings == nil {
+		warnings = []Warning{}
+	}
+	return appendJSON(nil, warnings)
 }
 
 // ToNode projects a single element, reporting false for types that carry no

@@ -184,6 +184,16 @@ func TestToJSONCustomIsAlwaysAnObject(t *testing.T) {
 	}
 }
 
+// A clean script must encode an empty array, never null, so a consumer can
+// iterate the result without guarding. See ToWarningsJSON.
+func TestToWarningsJSONEmptyIsAnArrayNotNull(t *testing.T) {
+	for _, input := range []string{"", "\n\n", "Title: T\nAuthor: A\n\nEXT. CASA - DIA\n\nTexto.\n"} {
+		if got := string(ToWarningsJSON(input)); got != "[]" {
+			t.Errorf("ToWarningsJSON(%q) = %s, want []", input, got)
+		}
+	}
+}
+
 func TestToWarningsJSONUsesLowercaseKeys(t *testing.T) {
 	b := ToWarningsJSON("EXT. CASA - DIA\n")
 
