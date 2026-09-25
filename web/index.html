@@ -1,0 +1,241 @@
+<!doctype html>
+<!--
+  Live preview for the Fountain wasm modules.
+
+  This is a plain ES module page: no build step, no framework, no dependencies.
+  It is the intended shape of a consumer, and it doubles as the manual check
+  that the documented usage actually works.
+
+  Serve the repository root (`make smoke` starts a server on :4173, or
+  `cd web && npm run serve`) and open /web/.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fountain — live preview</title>
+    <style>
+      :root {
+        --bg: #14161a;
+        --panel: #1c1f26;
+        --line: #2c313b;
+        --text: #e6e8ec;
+        --muted: #8b93a1;
+        --accent: #6ea8fe;
+        --warn: #e0a458;
+        --page: #f7f5f0;
+        --ink: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 system-ui, sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      header h1 { font-size: 14px; font-weight: 600; margin: 0; }
+      #status { color: var(--muted); font-size: 12px; margin-left: auto; }
+      #status.error { color: #e06c6c; }
+      button {
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: #262b34;
+        color: var(--text);
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: progress; }
+      main { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+      #source {
+        width: 100%;
+        height: 100%;
+        padding: 16px;
+        border: 0;
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        font: 13px/1.6 ui-monospace, "Cascadia Code", Menlo, monospace;
+        resize: none;
+        outline: none;
+        tab-size: 2;
+      }
+      #output { overflow: auto; padding: 24px; }
+
+      /* The page proportions follow the PDF spec: 1.5" left margin on an 8.5"
+         sheet is 17.6%, a character cue at 3.7" is 43.5%, dialogue at 2.5" is
+         29.4%. Reproducing them here is what makes the preview a preview. */
+      #script {
+        background: var(--page);
+        color: var(--ink);
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 3rem 3rem 5rem;
+        font: 12pt/1.5 "Courier New", Courier, monospace;
+      }
+      #script > * { margin: 0 0 1em; }
+      .sceneHeading { text-transform: uppercase; }
+      .character { margin-left: 43.5%; text-transform: uppercase; }
+      .parenthetical { margin-left: 36.5%; }
+      .dialogue { margin-left: 29.4%; margin-right: 17.6%; }
+      .transition { text-align: right; text-transform: uppercase; }
+      .centered { text-align: center; }
+      .lyric { margin-left: 17.6%; }
+      .parenthetical, .lyric, .synopsis { font-style: italic; }
+      .section { font-weight: bold; margin-top: 1.5em; }
+      .pageBreak { border-top: 1px dashed #b9b4a8; margin: 2em 0; }
+      .boneyard, .note { color: #8a857a; }
+      b { font-weight: bold; }
+
+      #warnings { max-width: 46rem; margin: 16px auto 0; font: 12px/1.5 system-ui, sans-serif; }
+      #warnings li { color: var(--warn); }
+      #warnings code { color: var(--muted); }
+      #warnings ul { margin: 6px 0; padding-left: 20px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>fountain — live preview</h1>
+      <button id="pdf">Download PDF</button>
+      <span id="status">booting…</span>
+    </header>
+
+    <main>
+      <textarea id="source" spellcheck="false">Title: LA SEÑAL
+Credit: Written by
+Author: Jane Doe
+
+EXT. SPACE - NIGHT
+
+Stars fill the void. A **lone** satellite orbits a distant planet.
+
+ELENA
+(whispered)
+Come on, come on...
+
+CUT TO:
+
+INT. SPACE STATION - CONTROL ROOM - NIGHT
+
+A bank of monitors flickers. ELENA stares at a blinking cursor.
+
+STATIC
+Any signal yet?
+
+ELENA
+Nothing. Six months of silence and today's no different.
+</textarea>
+      <div id="output">
+        <div id="script"></div>
+        <div id="warnings"></div>
+      </div>
+    </main>
+
+    <script type="module">
+      import { createFountain } from '../dist/fountain.mjs'
+
+      const source = document.getElementById('source')
+      const script = document.getElementById('script')
+      const warnings = document.getElementById('warnings')
+      const status = document.getElementById('status')
+      const pdfButton = document.getElementById('pdf')
+
+      const esc = (s) =>
+        s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+      function inline(spans, fallback) {
+        if (!spans?.length) return esc(fallback ?? '')
+        return spans
+          .map((s) =>
+            s.type === 'bold'
+              ? `<b>${inline(s.content, '')}</b>`
+              : s.type === 'italic'
+                ? `<i>${inline(s.content, '')}</i>`
+                : esc(s.text),
+          )
+          .join('')
+      }
+
+      function render(node) {
+        if (node.type === 'pageBreak') return '<hr class="pageBreak" />'
+        const text = inline(node.inline, node.text)
+        // The uppercase flag is a hint for renderers, not a transformation the
+        // parser applied, so the preview applies it the way the PDF does.
+        const body = node.uppercase ? text.toUpperCase() : text
+        if (node.baseItalic) return `<p class="${node.type}"><i>${body}</i></p>`
+        return `<p class="${node.type}">${body}</p>`
+      }
+
+      function renderWarnings(list) {
+        if (!list?.length) {
+          warnings.innerHTML = ''
+          return
+        }
+        const items = list
+          .map((w) => `<li>line ${w.line} — <code>${w.code}</code> ${esc(w.message)}</li>`)
+          .join('')
+        warnings.innerHTML = `<ul>${items}</ul>`
+      }
+
+      const fountain = await createFountain()
+      status.textContent = 'parser ready'
+      status.classList.remove('error')
+
+      let queued = false
+      function update() {
+        if (queued) return
+        queued = true
+        requestAnimationFrame(() => {
+          queued = false
+          const text = source.value
+          try {
+            const doc = fountain.parse(text)
+            script.innerHTML = doc.elements.map(render).join('')
+            renderWarnings(fountain.lint(text))
+          } catch (err) {
+            script.innerHTML = ''
+            status.textContent = String(err?.message ?? err)
+            status.classList.add('error')
+          }
+        })
+      }
+
+      source.addEventListener('input', update)
+
+      pdfButton.addEventListener('click', async () => {
+        pdfButton.disabled = true
+        const was = status.textContent
+        status.textContent = 'loading renderer (6.7 MB, once)…'
+        try {
+          const bytes = await fountain.renderPDF(source.value)
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'script.pdf'
+          a.click()
+          URL.revokeObjectURL(url)
+          status.textContent = was
+        } catch (err) {
+          status.textContent = String(err?.message ?? err)
+          status.classList.add('error')
+        } finally {
+          pdfButton.disabled = false
+        }
+      })
+
+      update()
+    </script>
+  </body>
+</html>
