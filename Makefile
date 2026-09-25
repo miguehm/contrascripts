@@ -9,7 +9,7 @@ GOVERSION := $(shell go env GOVERSION)
 # always copied straight out of GOROOT.
 WASM_EXEC := $(shell go env GOROOT)/lib/wasm/wasm_exec.js
 
-.PHONY: all build test vet fmt check wasm dist manifest sizes clean
+.PHONY: all build test vet fmt check wasm dist manifest package sizes smoke clean
 
 all: check dist
 
@@ -70,6 +70,28 @@ manifest:
 		done; \
 		printf '\n  }\n}\n'; \
 	} > $(DIST)/manifest.json
+
+# smoke runs the modules in a real browser. It is the only check that catches
+# the failure modes the Go compiler cannot see: a wasm_exec.js that does not
+# match the toolchain, and the two modules fighting over globalThis.
+#
+# Two suites, because they answer different questions. The first drives the
+# package on its own; the second runs a Vite app against it in both dev and
+# build, where the wrapper is compiled into a bundle and has to be told where
+# the .wasm files live.
+smoke: dist
+	cd web && npm test
+	cd web/vite && npx playwright test
+
+# package stages dist/ into another project's public folder, which is how a
+# frontend consumes the bundle without Go installed over there: its build calls
+#   make -C ../fountain package DIR=public/fountain
+# The shim stays a plain file in that folder on purpose. Serving it from
+# node_modules instead would need a copy plugin per bundler.
+package: dist
+	@test -n "$(DIR)" || { echo "usage: make package DIR=<dest>"; exit 1; }
+	@mkdir -p $(DIR)
+	cp $(DIST)/* $(DIR)/
 
 # sizes reports raw, gzip and brotli footprints, which is the number that
 # decides whether the split into two modules is still worth keeping.

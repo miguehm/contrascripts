@@ -1,0 +1,21 @@
+{
+  "name": "fountain-vite-fixture",
+  "private": true,
+  "type": "module",
+  "description": "Integration fixture: consumes the wasm package the way a Vite frontend does. Kept in the repo so the bundler path cannot rot silently.",
+  "scripts": {
+    "sync": "make -C ../.. package DIR=web/vite/public/fountain",
+    "dev": "npm run sync && vite",
+    "build": "npm run sync && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.1.0"
+  }
+}

@@ -19,5 +19,7 @@
 # Vite integration fixture: deps and build output
 /web/vite/node_modules/
 /web/vite/dist/
+/web/vite/test-results/
+/web/vite/playwright-report/
 # staged by `make package DIR=...`, never committed
 /web/vite/public/fountain/
