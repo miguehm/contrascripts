@@ -1,0 +1,28 @@
+{
+  "name": "fountain-wasm",
+  "version": "0.0.0",
+  "description": "Fountain screenplay parser, linter and PDF renderer, compiled to WebAssembly",
+  "license": "MIT",
+  "type": "module",
+  "main": "./fountain.mjs",
+  "types": "./fountain.d.ts",
+  "exports": {
+    ".": {
+      "types": "./fountain.d.ts",
+      "default": "./fountain.mjs"
+    },
+    "./fountain.mjs": "./fountain.mjs",
+    "./fountain.d.ts": "./fountain.d.ts",
+    "./wasm_exec.js": "./wasm_exec.js",
+    "./manifest.json": "./manifest.json",
+    "./*.wasm": "./*.wasm"
+  },
+  "files": [
+    "fountain.mjs",
+    "fountain.d.ts",
+    "wasm_exec.js",
+    "manifest.json",
+    "*.wasm"
+  ],
+  "sideEffects": false
+}

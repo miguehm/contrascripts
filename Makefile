@@ -3,6 +3,9 @@ DIST    := dist
 WASMENV := GOOS=js GOARCH=wasm
 WASMFLAGS := -trimpath -ldflags="-s -w"
 GOVERSION := $(shell go env GOVERSION)
+# One source of truth for the version: the CLI's own constant, so the shipped
+# package manifest cannot claim a different one.
+VERSION := $(shell sed -n 's/^const version = "\(.*\)"/\1/p' cmd/fountain/main.go)
 # wasm_exec.js is not a build artefact: it is the mandatory Go<->JS runtime shim,
 # and it must be the one shipped with the toolchain that compiled the .wasm.
 # A mismatched copy makes go.run() fail at init, so it is never committed and
@@ -47,7 +50,8 @@ wasm:
 # can instantiate.
 dist: wasm
 	cp $(WASM_EXEC) $(DIST)/wasm_exec.js
-	cp web/fountain.mjs $(DIST)/fountain.mjs
+	cp web/fountain.mjs web/fountain.d.ts $(DIST)/
+	sed 's|"version": ".*"|"version": "$(VERSION)"|' web/dist-package.json > $(DIST)/package.json
 	@$(MAKE) --no-print-directory manifest
 	@printf 'dist/ is ready: %s modules, glue from %s\n' "$$(ls $(DIST)/*.wasm | wc -l)" "$(GOVERSION)"
 
