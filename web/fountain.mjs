@@ -12,13 +12,15 @@
  *   - turns the `null` + console.error error convention into a thrown error
  *   - loads fountain-pdf.wasm on demand instead of on first paint
  *
- * Usage:
+ * Usage (in the browser; it rejects anywhere else):
  *
  *   import { createFountain } from './fountain.mjs'
  *   const fountain = await createFountain()          // resolves next to this file
  *   const doc = fountain.parse(text)                 // sync
  *   const warnings = fountain.lint(text)             // sync
  *   const pdf = await fountain.renderPDF(text)       // async, lazy 6.7 MB load
+ *
+ * Under a bundler pass `base` too — see Options below.
  *
  * @module fountain
  */
@@ -48,7 +50,8 @@ export class FountainError extends Error {
  * @property {string} type element name, e.g. 'action' or 'sceneHeading'
  * @property {string} [text] element text before inline parsing
  * @property {number} [level] heading depth, sections only
- * @property {string} [prefix] forcing character ('.', '!', '@')
+ * @property {string} [prefix] never emitted; a forced element resolves to the
+ *   type it stands for, so `.FOO` arrives as type 'sceneHeading'
  * @property {boolean} [uppercase] renderer must upper-case `text`
  * @property {boolean} [baseItalic] renderer must style the whole element italic
  * @property {Span[]} [inline] parsed **bold** / *italic* runs
@@ -238,6 +241,25 @@ export async function createFountain(options = {}) {
     wasmExec = 'wasm_exec.js',
     injectWasmExec = true,
   } = options
+
+  // This wrapper is a browser module: it injects a <script> for wasm_exec.js
+  // and fetches the .wasm from a URL. Under an SSR pass, a prerender or plain
+  // Node there is no document, and without this the failure surfaces as a
+  // fetch against a file:// URL — or, when the host has a base URL set, as a
+  // 404 on the shim — neither of which mentions the real cause.
+  //
+  // The one escape hatch is a host that already put Go on globalThis: then
+  // there is nothing to inject and the runtime can be driven headless.
+  if (typeof document === 'undefined' && !globalThis.Go) {
+    throw new FountainError(
+      'fountain is a browser module and cannot boot without a document (this ' +
+        'looks like Node, an SSR pass or a prerender). Call createFountain() ' +
+        'from client code only: a dynamic import() inside useEffect / ' +
+        'onMounted / componentDidMount, or a client-only component (in Next.js ' +
+        'a dynamic import with { ssr: false }). Pass injectWasmExec:false only ' +
+        'if the page has already loaded wasm_exec.js itself.',
+    )
+  }
 
   // The shim is resolved against `base`, not against this module's own URL.
   // Under a bundler the .mjs is compiled into an output chunk and
