@@ -18,34 +18,65 @@ const (
 	marginTop    = 1.0
 	marginBottom = 1.0
 
-	usableWidth = pageWidth - marginLeft - marginRight // 6.0
-
 	charLeft     = 1.5
-	charRight    = 7.5
 	actionLeft   = 1.5
-	actionRight  = 7.5
 	charNameLeft = 3.7
 	parenLeft    = 3.1
 	parenRight   = 5.0
 	dialogLeft   = 2.5
 	dialogRight  = 6.0
-	transRight   = 1.0
 
-	fontSize    = 12.0
-	lineSpacing = 0.1667 // inches per line: 12pt Courier leading (1/6 inch per screenplay line)
+	fontSize = 12.0
+
+	// lineSpacing is the leading between consecutive baselines: exactly one
+	// 12pt line, i.e. 1/6 inch, the industry rule of 6 lines per vertical
+	// inch. Every block gap is expressed as a multiple of it so the whole
+	// page stays on one line grid.
+	lineSpacing = 1.0 / 6.0
 )
 
 type PDFRenderer struct {
-	pdf      *gofpdf.Fpdf
-	doc      *parser.Fountain
-	tr       func(string) string
-	sceneNum int
+	pdf         *gofpdf.Fpdf
+	doc         *parser.Fountain
+	tr          func(string) string
+	sceneNum    int
+	prevVisible parser.Element
+
+	// Scene tracking, used by the production continuation notation. A scene is
+	// open from its heading until a new heading arrives, running straight through
+	// the dialogue and the transitions inside it.
+	//
+	// sceneOrdinal counts every scene from 1 whether or not they are numbered in
+	// the margins, because the CONTINUED: head refers to it. Counting it
+	// independently means turning scene-numbers on or off does not change what
+	// the production notation says.
+	sceneOrdinal int
+	inScene      bool
+	// carryOn marks the page being closed as one whose scene runs past its foot,
+	// which is what the footer turns into a (CONTINUED).
+	carryOn bool
+	// headOnNewPage records whether the page just opened continues a scene that
+	// began on an earlier one, decided when the page is opened.
+	headOnNewPage bool
+	// nextStartsScene says whether the element about to be drawn is a scene
+	// heading, which is what newBodyPage consults to keep a fresh scene off a
+	// page that should not claim to continue the previous one.
+	nextStartsScene bool
+	// lastCue is the cue most recently drawn, which is the one to repeat when a
+	// speech continues over a page break.
+	lastCue *parser.Character
 }
 
 func New(doc *parser.Fountain) *PDFRenderer {
 	pdf := gofpdf.New("P", "in", "Letter", "")
 	pdf.SetMargins(marginLeft, marginTop, marginRight)
 	pdf.SetAutoPageBreak(true, marginBottom)
+	// gofpdf pads every cell by a 1mm cell margin by default. On a
+	// monospaced screenplay grid that padding pushes text off its column and
+	// steals two millimetres from the wrap width, which is enough to break a
+	// full 60-character action line onto a second line. The cell origin is
+	// already the column, so the margin has to go.
+	pdf.SetCellMargin(0)
 	registerCourierPrime(pdf)
 	if pdf.Err() {
 		pdf.SetFont("Courier", "", fontSize)
@@ -77,13 +108,32 @@ func (r *PDFRenderer) RenderToWriter(w io.Writer) error {
 }
 
 func (r *PDFRenderer) render() {
+	// The header runs as a page opens, which is the only band of the page that is
+	// free of body text. The continuation marks live here rather than in the text
+	// block so that they cannot collide with the first line of the page and do
+	// not consume any of its 54 lines.
 	r.pdf.SetHeaderFuncMode(func() {
+		if r.production() && r.headOnNewPage {
+			r.drawContinuedHead(r.sceneOrdinal)
+		}
 		if r.pdf.PageNo() > 1 {
+			// 0.5in from the top, flush to the 7.5in right margin, and absent
+			// from the first page. The trailing period is the convention in the
+			// screenplay format guides; Final Draft's own default omits it.
 			r.pdf.SetFont(fontFamily, "", 10)
 			r.pdf.SetXY(pageWidth-marginRight-0.5, 0.5)
-			r.pdf.CellFormat(0.5, 0.25, fmt.Sprintf("%d", r.pdf.PageNo()-1), "", 0, "R", false, 0, "")
+			r.pdf.CellFormat(0.5, 0.25, fmt.Sprintf("%d.", r.pdf.PageNo()-1), "", 0, "R", false, 0, "")
 		}
 	}, true)
+
+	// The footer runs as a page closes, which is the only moment the (CONTINUED)
+	// mark can still be placed on it.
+	r.pdf.SetFooterFunc(func() {
+		if r.production() && r.carryOn {
+			r.drawContinued()
+		}
+		r.carryOn = false
+	})
 
 	if hasTitlePage(r.doc) {
 		r.renderTitlePage()
@@ -333,16 +383,105 @@ func nonEmpty(parts ...string) []string {
 	return out
 }
 
-func (r *PDFRenderer) renderElements() {
-	r.pdf.AddPage()
-	r.sceneNum = 0
+// blankLine advances the cursor by exactly one screenplay line, so the next
+// block starts one blank line below the previous one. Because gofpdf's Ln also
+// resets the cursor to the left margin, callers must set their own margin and X
+// afterwards, which every renderer here does.
+func (r *PDFRenderer) blankLine() {
+	r.pdf.Ln(lineSpacing)
+}
 
-	for _, el := range r.doc.Elements {
-		r.renderElement(el)
+// spaceAbove is the number of blank lines the screenplay format puts between
+// the previous element and el. The rules are pairwise, because a gap depends on
+// both sides: a scene heading is separated from whatever precedes it by two
+// blank lines so consecutive scenes read as distinct beats, a transition is
+// followed by two, and a character / parenthetical / dialogue group stays
+// single spaced throughout. A nil prev means el starts a page, where the top
+// margin is already the boundary.
+func spaceAbove(prev, el parser.Element) int {
+	switch {
+	case prev == nil:
+		return 0
+	case isDialogueGroup(prev) && isDialogueGroup(el):
+		// Inside the cue, parenthetical and dialogue run there is no gap at
+		// all. Entering or leaving the run still gets the usual blank line.
+		return 0
+	case isSceneHeading(el):
+		return 2
+	case isTransition(prev):
+		return 2
+	default:
+		return 1
 	}
 }
 
-func (r *PDFRenderer) renderElement(el parser.Element) {
+func isSceneHeading(el parser.Element) bool {
+	switch e := el.(type) {
+	case parser.SceneHeading:
+		return true
+	case parser.Forced:
+		return e.Prefix == '.'
+	}
+	return false
+}
+
+func isTransition(el parser.Element) bool {
+	_, ok := el.(parser.Transition)
+	return ok
+}
+
+// isDialogueGroup reports whether el is one of the three elements that share a
+// single-spaced run: the character cue, its parenthetical and its dialogue.
+func isDialogueGroup(el parser.Element) bool {
+	switch el.(type) {
+	case parser.Character, parser.Parenthetical, parser.Dialogue:
+		return true
+	}
+	return false
+}
+
+// visible reports whether el puts anything on the page. Notes and boneyards are
+// parsed but never printed, so they must not consume the blank line the next
+// visible element expects.
+func visible(el parser.Element) bool {
+	switch el.(type) {
+	case parser.Note, parser.Boneyard:
+		return false
+	}
+	return true
+}
+
+func (r *PDFRenderer) renderElements() {
+	r.pdf.AddPage()
+	r.sceneNum = 0
+	r.prevVisible = nil
+
+	for i, el := range r.doc.Elements {
+		if !visible(el) {
+			continue
+		}
+		// What the upcoming element means for the notation is published before the
+		// break is taken, because a page that opens with a scene heading starts a
+		// scene rather than continuing one, and both facts are only knowable here.
+		r.nextStartsScene = isSceneHeading(el)
+		if isSceneHeading(el) {
+			r.inScene = true
+		}
+		r.breakForKeepTogether(r.doc.Elements, i)
+		r.renderElement(r.doc.Elements, i)
+	}
+}
+
+func (r *PDFRenderer) renderElement(els []parser.Element, i int) {
+	el := els[i]
+	if !visible(el) {
+		return
+	}
+
+	for i := 0; i < spaceAbove(r.prevVisible, el); i++ {
+		r.blankLine()
+	}
+
 	switch e := el.(type) {
 	case parser.SceneHeading:
 		r.renderSceneHeading(e)
@@ -363,37 +502,40 @@ func (r *PDFRenderer) renderElement(el parser.Element) {
 	case parser.Forced:
 		r.renderForced(e)
 	case parser.PageBreak:
-		r.renderPageBreak()
-	case parser.Note, parser.Boneyard:
-		// invisible in output
+		// A forced break resets the run, so the next element starts on the
+		// next page with no separation from the margin.
+		r.renderPageBreak(els, i)
+		r.prevVisible = nil
+		return
 	}
+
+	r.prevVisible = el
 }
 
 func (r *PDFRenderer) renderSceneHeading(el parser.SceneHeading) {
-	r.pdf.Ln(0.15)
-	r.pdf.SetFont(fontFamily, "", fontSize)
+	// Every scene is counted, so the CONTINUED: head can name it even when the
+	// scene numbers are not being drawn in the margins.
+	r.sceneOrdinal++
 	showNum := r.doc.TitlePage.SceneNumbers
 	num := 0
 	if showNum {
 		r.sceneNum++
 		num = r.sceneNum
 	}
-	startY := r.pdf.GetY()
 	r.pdf.SetLeftMargin(charLeft)
 	r.pdf.SetRightMargin(marginRight)
-	r.pdf.SetX(charLeft)
-	r.pdf.MultiCell(0, lineSpacing, r.tr(strings.ToUpper(el.Text)), "", "L", false)
-	endY := r.pdf.GetY()
+	startY := r.pdf.GetY()
+	r.placeBlock(charLeft, pageWidth-charLeft-marginRight,
+		r.measureBlock(strings.ToUpper(el.Text), pageWidth-charLeft-marginRight, false, false), false)
 	if showNum {
 		r.drawSceneNumber(num, startY)
-		r.pdf.SetY(endY)
 	}
-	r.pdf.Ln(0.15)
 	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
 // drawSceneNumber writes the scene number in both page margins at the given
-// Y without touching the heading text block.
+// Y without touching the heading text block. The cells advance the cursor, so
+// the caller restores it.
 func (r *PDFRenderer) drawSceneNumber(num int, y float64) {
 	label := r.tr(fmt.Sprintf("%d", num))
 	r.pdf.SetFont(fontFamily, "", fontSize)
@@ -405,101 +547,113 @@ func (r *PDFRenderer) drawSceneNumber(num int, y float64) {
 	r.pdf.CellFormat(0.5, lineSpacing, label, "", 0, "L", false, 0, "")
 	r.pdf.SetLeftMargin(marginLeft)
 	r.pdf.SetRightMargin(marginRight)
+	r.pdf.SetY(y + lineSpacing)
 }
 
 func (r *PDFRenderer) renderAction(el parser.Action) {
-	r.pdf.Ln(0.05)
-	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(actionLeft)
 	r.pdf.SetRightMargin(marginRight)
-	r.pdf.SetX(actionLeft)
-	r.renderFormattedBlock(el.Text, actionLeft, pageWidth-actionLeft-marginRight, false, false)
-	r.pdf.Ln(0.05)
+	r.placeBlock(actionLeft, pageWidth-actionLeft-marginRight,
+		r.measureElement(el), false)
 }
 
 func (r *PDFRenderer) renderCharacter(el parser.Character) {
-	r.pdf.Ln(0.1)
-	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(charNameLeft)
 	r.pdf.SetRightMargin(marginRight)
-	r.pdf.SetX(charNameLeft)
-
-	name := strings.ToUpper(el.Text)
-
-	r.pdf.MultiCell(0, lineSpacing, r.tr(name), "", "L", false)
+	r.lastCue = &parser.Character{Text: el.Text}
+	r.placeBlock(charNameLeft, pageWidth-charNameLeft-marginRight,
+		r.measureElement(el), false)
 	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
+// renderDialogue owns the division of a speech, because a divided speech is the
+// one place the production notation has to be interleaved with the text: (MORE)
+// at the foot of the first page and the cue again, with (CONT'D), above the
+// remainder. Splitting it here rather than inside placeBlock is what keeps those
+// two marks on the right lines of the right pages.
 func (r *PDFRenderer) renderDialogue(el parser.Dialogue) {
+	lines := r.measureElement(el)
 	r.pdf.SetLeftMargin(dialogLeft)
 	r.pdf.SetRightMargin(pageWidth - dialogRight)
-	r.pdf.SetX(dialogLeft)
-	r.renderFormattedBlock(el.Text, dialogLeft, dialogRight-dialogLeft, false, false)
-	r.pdf.Ln(0.05)
+
+	// A speech too tall for the space left moves whole to the next page before
+	// being divided, so its first half always begins a page.
+	if r.bodyLine() > 0 && r.speechSplit(lines, 0) == 0 {
+		// Pushed whole to the next page, which the speech then opens.
+		r.newBodyPage(r.inScene)
+	}
+
+	from := 0
+	// The bound only matters for a speech taller than a whole page, which cannot
+	// happen once each pass either draws lines or starts a page.
+	for pass := 0; pass <= len(lines); pass++ {
+		at := r.speechSplit(lines, from)
+		if at == 0 {
+			r.newBodyPage(r.inScene)
+			continue
+		}
+		r.drawVisualLines(dialogLeft, dialogRight-dialogLeft, lines, from, from+at, false)
+		if from+at >= len(lines) {
+			return
+		}
+		if r.production() {
+			r.drawMore()
+		}
+		// Divided, so the rest of the speech is what lands on the new page.
+		r.newBodyPage(r.inScene)
+		if r.production() {
+			if cue := r.openCue(); cue != nil {
+				r.drawContinuedCue(*cue)
+			}
+		}
+		from += at
+	}
 }
+
+// speechSplit is splitPoint with the space a continuation marker needs reserved.
+// A (MORE) is a line of the grid in its own right, so a page that is about to
+// hand a speech over to the next one has to leave room for it.
+func (r *PDFRenderer) speechSplit(lines []visualLine, from int) int {
+	available := r.linesLeft()
+	if r.production() && from+available < len(lines) {
+		available--
+	}
+	return splitPoint(lines[from:], available)
+}
+
+// openCue returns the cue of the group the renderer is inside, so a divided
+// speech knows which name to repeat. The renderer does not look backwards
+// through the document, so the cue is remembered as it is drawn.
+func (r *PDFRenderer) openCue() *parser.Character { return r.lastCue }
 
 func (r *PDFRenderer) renderParenthetical(el parser.Parenthetical) {
 	r.pdf.SetLeftMargin(parenLeft)
 	r.pdf.SetRightMargin(pageWidth - parenRight)
-	r.pdf.SetX(parenLeft)
-	r.renderFormattedBlock(el.Text, parenLeft, parenRight-parenLeft, false, false)
+	r.placeBlock(parenLeft, parenRight-parenLeft, r.measureElement(el), false)
 }
 
 func (r *PDFRenderer) renderTransition(el parser.Transition) {
-	r.pdf.Ln(0.1)
-	r.pdf.SetFont(fontFamily, "", fontSize)
-	text := r.tr(strings.ToUpper(el.Text))
-	w := r.pdf.GetStringWidth(text)
-	x := pageWidth - marginRight - w
 	r.pdf.SetLeftMargin(0)
 	r.pdf.SetRightMargin(0)
-	r.pdf.SetX(x)
-	r.pdf.CellFormat(w, lineSpacing, text, "", 1, "L", false, 0, "")
-	r.pdf.Ln(0.1)
+	lines := r.measureElement(el)
+	if len(lines) > 0 && !lines[0].blank {
+		// Transitions are flush right, so the line is measured and then pushed
+		// over by the width of its own text.
+		total := 0.0
+		for _, seg := range lines[0].chunks {
+			r.pdf.SetFont(fontFamily, seg.style(), fontSize)
+			total += r.pdf.GetStringWidth(seg.text)
+		}
+		r.placeBlock(pageWidth-marginRight-total, total, lines, false)
+	}
 	r.pdf.SetLeftMargin(marginLeft)
 	r.pdf.SetRightMargin(marginRight)
 }
 
 func (r *PDFRenderer) renderCentered(el parser.Centered) {
-	r.pdf.Ln(0.05)
-	r.pdf.SetFont(fontFamily, "", fontSize)
 	r.pdf.SetLeftMargin(0)
 	r.pdf.SetRightMargin(0)
-	r.pdf.SetX(0)
-
-	inlines := parser.ParseInline(el.Text)
-	chunks := mergeChunks(flattenInline(inlines, false, false))
-
-	if !hasFormatting(chunks, false, false) {
-		r.pdf.CellFormat(pageWidth, lineSpacing, r.tr(el.Text), "", 1, "C", false, 0, "")
-	} else {
-		var plainTrText string
-		type centerRun struct {
-			text  string
-			style string
-		}
-		var runs []centerRun
-		for _, c := range chunks {
-			trText := r.tr(c.text)
-			plainTrText += trText
-			runs = append(runs, centerRun{
-				text:  trText,
-				style: c.style(),
-			})
-		}
-		totalW := r.pdf.GetStringWidth(plainTrText)
-		startX := (pageWidth - totalW) / 2.0
-		r.pdf.SetX(startX)
-		for _, run := range runs {
-			r.pdf.SetFont(fontFamily, run.style, fontSize)
-			runW := r.pdf.GetStringWidth(run.text)
-			r.pdf.CellFormat(runW, lineSpacing, run.text, "", 0, "L", false, 0, "")
-		}
-		r.pdf.Ln(lineSpacing)
-		r.pdf.SetFont(fontFamily, "", fontSize)
-	}
-
-	r.pdf.Ln(0.05)
+	r.placeBlock(0, pageWidth, r.measureElement(el), true)
 	r.pdf.SetLeftMargin(marginLeft)
 	r.pdf.SetRightMargin(marginRight)
 }
@@ -508,8 +662,7 @@ func (r *PDFRenderer) renderLyric(el parser.Lyric) {
 	r.pdf.SetFont(fontFamily, "I", fontSize)
 	r.pdf.SetLeftMargin(charLeft)
 	r.pdf.SetRightMargin(marginRight)
-	r.pdf.SetX(charLeft)
-	r.renderFormattedBlock(el.Text, charLeft, pageWidth-charLeft-marginRight, false, true)
+	r.placeBlock(charLeft, pageWidth-charLeft-marginRight, r.measureElement(el), false)
 	r.pdf.SetFont(fontFamily, "", fontSize)
 }
 
@@ -526,8 +679,15 @@ func (r *PDFRenderer) renderForced(el parser.Forced) {
 	}
 }
 
-func (r *PDFRenderer) renderPageBreak() {
-	r.pdf.AddPage()
+func (r *PDFRenderer) renderPageBreak(els []parser.Element, i int) {
+	// A forced break inside a scene is a scene running on like any other, so it
+	// goes through the same path and picks up the same notation. What follows the
+	// break decides, as it does for any other break between two elements.
+	runsOn := r.inScene
+	if j := nextVisible(els, i+1); j < 0 || isSceneHeading(els[j]) {
+		runsOn = false
+	}
+	r.newBodyPage(runsOn)
 }
 
 // styledChunk represents a run of text with a specific font style.
@@ -594,49 +754,6 @@ func hasFormatting(chunks []styledChunk, baseBold, baseItalic bool) bool {
 	return false
 }
 
-// renderFormattedBlock renders text with inline formatting within a fixed-width block.
-// It wraps the text into lines using greedy word-wrap, then renders each line chunk
-// by chunk with proper font styles.
-func (r *PDFRenderer) renderFormattedBlock(text string, startX, width float64, baseBold, baseItalic bool) {
-	inlines := parser.ParseInline(text)
-	chunks := mergeChunks(flattenInline(inlines, baseBold, baseItalic))
-
-	if !hasFormatting(chunks, baseBold, baseItalic) {
-		r.pdf.SetFont(fontFamily, r.styleStr(baseBold, baseItalic), fontSize)
-		r.pdf.MultiCell(0, lineSpacing, r.tr(text), "", "L", false)
-		return
-	}
-
-	// Translate each chunk to CP1252 single-byte so gofpdf's byte-based
-	// width computation matches the rendered output.
-	translated := make([]styledChunk, len(chunks))
-	for i, c := range chunks {
-		translated[i] = styledChunk{
-			text:   strings.Replace(r.tr(c.text), "\r", "", -1),
-			bold:   c.bold,
-			italic: c.italic,
-		}
-	}
-
-	// Wrap the translated chunk stream into lines.
-	lines := r.wrapStyled(translated, width)
-
-	// Render each line with per-chunk font styling.
-	for _, line := range lines {
-		r.pdf.SetX(startX)
-		if line == nil {
-			r.pdf.Ln(lineSpacing)
-			continue
-		}
-		for _, seg := range line {
-			r.pdf.SetFont(fontFamily, seg.style(), fontSize)
-			w := r.pdf.GetStringWidth(seg.text)
-			r.pdf.CellFormat(w, lineSpacing, seg.text, "", 0, "L", false, 0, "")
-		}
-		r.pdf.Ln(lineSpacing)
-	}
-}
-
 // wrapStyled wraps translated styled chunks into lines using greedy word-wrap.
 // Each chunk's text is tokenized into words, spaces, and newlines. Lines are
 // built greedily, breaking before the word that would exceed the width. Explicit
@@ -676,7 +793,7 @@ func (r *PDFRenderer) wrapStyled(chunks []styledChunk, width float64) [][]styled
 
 	var lines [][]styledChunk
 	var cur []styledChunk
-	var curW float64
+	curW := 0.0
 	for _, tok := range tokens {
 		if tok.isNewline {
 			lines = append(lines, cur)
@@ -684,19 +801,68 @@ func (r *PDFRenderer) wrapStyled(chunks []styledChunk, width float64) [][]styled
 			curW = 0
 			continue
 		}
+		style := styledChunk{bold: tok.bold, italic: tok.italic}
 		sw := r.stringWidth(tok.text, tok.bold, tok.italic)
 		if curW+sw > width && len(cur) > 0 {
 			lines = append(lines, cur)
 			cur = nil
 			curW = 0
 		}
-		cur = append(cur, styledChunk{text: tok.text, bold: tok.bold, italic: tok.italic})
+		// A token too wide for a whole empty line, such as an unbroken run of
+		// characters, still has to wrap. gofpdf splits these on its own wrap
+		// path, so skipping it here would let the text run into the next
+		// column and out of the 60 characters the action block is defined to
+		// hold.
+		for sw > width {
+			take := longestPrefix(r, tok.text, width, tok.bold, tok.italic)
+			if take == 0 {
+				break // a single glyph is wider than the column; let it overflow
+			}
+			lines = append(lines, append(cur, style.withText(tok.text[:take])))
+			cur = nil
+			curW = 0
+			tok.text = tok.text[take:]
+			sw = r.stringWidth(tok.text, tok.bold, tok.italic)
+		}
+		cur = append(cur, style.withText(tok.text))
 		curW += sw
 	}
 	if len(cur) > 0 {
 		lines = append(lines, cur)
 	}
 	return lines
+}
+
+// withText returns a copy of the chunk carrying different text, so a forced
+// split can reuse the original run's style.
+func (c styledChunk) withText(text string) styledChunk {
+	c.text = text
+	return c
+}
+
+// longestPrefix returns the length in bytes of the longest prefix of s that
+// fits within width, measured on rune boundaries so the result can never cut a
+// multi-byte character in half. It returns 0 when not even the first rune fits.
+//
+// The boundaries come from ranging over the string, which yields the start of
+// each rune, so the previous boundary is remembered rather than a byte length
+// added: len(string(s[i])) is 1 for a byte even when that byte is half of a
+// two-byte rune, and adding it walks the index into the middle of characters.
+func longestPrefix(r *PDFRenderer, s string, width float64, bold, italic bool) int {
+	best := 0
+	for i := range s {
+		if i == 0 {
+			continue
+		}
+		if r.stringWidth(s[:i], bold, italic) > width {
+			return best
+		}
+		best = i
+	}
+	if r.stringWidth(s, bold, italic) > width {
+		return best
+	}
+	return len(s)
 }
 
 func (r *PDFRenderer) stringWidth(text string, bold, italic bool) float64 {

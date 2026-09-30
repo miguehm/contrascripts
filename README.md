@@ -337,10 +337,86 @@ Stars fill the void.
 
 - Paper: US Letter (8.5" × 11")
 - Font: Courier 12pt (embedded Courier Prime when available, fallback to core Courier)
-- Margins: 1.5" left, 1.0" top/right/bottom (6.0" usable width)
+- Line spacing: 12pt, single spaced, i.e. six lines per vertical inch. Every block gap is a whole multiple of that line, so the page stays on one grid
+- Elements are separated by one blank line, with two above a scene heading and two after a transition, and none inside a character / parenthetical / dialogue group
+- Margins: 1.5" left, 1.0" top/right/bottom (6.0" usable width, 60 Courier characters)
 - Layout: Character 3.7", Dialogue 2.5"–6.0", Parenthetical 3.1"–5.0", Transition flush right, Action / Scene full width
-- Page numbers top-right from page 2 (title page unnumbered)
+- Page numbers top-right from page 2 (title page unnumbered), with a trailing period
+- Lines per page: 54, the figure behind the one-page-per-minute rule of thumb
 - Scene numbers (when enabled): plain number in both margins, heading text unchanged
+
+The layout above is the industry screenplay format. The renderer asserts it in
+`internal/renderer/geometry_test.go`, which reads the baseline coordinates back
+out of the generated content stream and checks the pitch, the block gaps, the
+column positions and the 60-character action line.
+
+### Page breaking
+
+The renderer measures each block before drawing any of it, so it chooses where a
+page ends rather than letting the page fill up wherever it runs out. The rules,
+all of which are asserted in `internal/renderer/pagebreak_test.go`:
+
+- A scene heading is never left alone at the foot of a page; it moves down with
+  the content it introduces. Two exceptions: a shot that is only a setup
+  (`ESTABLISHING`, `INSERT`) may end a page, and a page may end on a heading when
+  another heading follows, as with an establishing shot introducing its scene.
+- A character cue is never left alone; at least two lines of its own speech,
+  counting a parenthetical, follow it on the same page.
+- A page never ends on a parenthetical; dialogue has to follow it.
+- A page never starts on a transition; it stays at the foot of the page before,
+  with the scene it closes.
+- A divided block leaves at least two lines behind and carries at least two
+  over, and the break is taken at a line that finished a sentence where one is
+  available. A block that cannot satisfy this moves whole instead.
+
+### Production scripts
+
+A spec script is read by people who turn the page, and the format guides say the
+continuation notation only clutters it, so it is opt-in. Set `production: true`
+in the front matter to get it:
+
+```yaml
+---
+title: The Last Signal
+production: true
+---
+```
+
+A speech divided over a page break then carries `(MORE)` under the dialogue, with
+the cue repeated above the remainder as `MARA (CONT'D)` — or `MARA (V.O.);
+(CONT'D)` when the name already carries an extension. A scene that runs past the
+foot of a page carries `(CONTINUED)` at the foot of that page and `CONTINUED: n`
+in the head band of the next.
+
+The number after `CONTINUED:` is the scene's ordinal, not the page number, and it
+is counted whether or not `scene-numbers` is drawing numbers in the margins, so
+the two features stay independent. The guides are not consistent about what the
+number means — one describes it as the scene number and another as a count of the
+pages the scene spans — but the scene ordinal is the reading that never produces
+a nonsense value, since a script with no front matter has an unnumbered first page
+and a page reference there would read `CONTINUED: 0`.
+
+All three marks sit in the bands around the text block rather than inside it: the
+`CONTINUED:` head in the same 0.5in band as the page number, and the
+`(CONTINUED)` foot in the bottom margin. So they cannot collide with the first or
+last line of script, and a continued page still holds the same 54 lines, which
+matters because the page count is how a script's running time is estimated. The
+one exception is `(MORE)`, which belongs under the dialogue it belongs to and
+does take a line; the renderer reserves one for it when it divides a speech.
+
+A transition closes a scene only when a scene heading is what follows it, so a
+transition written as a time card — `(POCO DESPUÉS) CUT TO:` sitting in the middle
+of a scene with action after it — does not silently drop the `(CONTINUED)` from
+every page that runs past one. A time card is a centered element in Fountain
+(`> (POCO DESPUÉS) <`) and needs no such tolerance, but the renderer infers rather
+than insists.
+
+Fountain itself excludes this notation — its spec says plainly that production
+features "such as MOREs, CONTINUEDs" are not part of the format, and every tool
+that reads Fountain infers them rather than expecting the author to type them. So
+the source should carry a bare `MUJER DESCONOCIDA`; the marks are the renderer's
+to add. If a cue already ends in an extension, the renderer appends after a
+semicolon rather than stacking a second extension on it.
 
 ## Project Structure
 
@@ -361,9 +437,14 @@ Stars fill the void.
 │   │   ├── jsonenc.go    # minimal reflect-based JSON encoder
 │   │   └── *_test.go     # Parser, lexer, inline, lint, JSON tests
 │   └── renderer/
-│       ├── pdf.go        # gofpdf renderer, title page + screenplay layout
-│       ├── fonts.go      # Courier Prime embedding
-│       └── pdf_test.go   # Structural PDF tests
+│       ├── pdf.go              # gofpdf renderer, title page + screenplay layout
+│       ├── layout.go           # Measure-then-place layout, page-breaking rules
+│       ├── continuations.go    # (MORE), (CONT'D) and CONTINUED marks
+│       ├── fonts.go            # Courier Prime embedding
+│       ├── pdf_test.go         # Structural PDF tests
+│       ├── geometry_test.go    # Line grid, block gaps and column assertions
+│       ├── pagebreak_test.go   # Page-breaking rules
+│       └── continuations_test.go # Production continuation notation
 ├── testdata/             # .fountain fixtures
 ├── web/
 │   ├── fountain.mjs      # JS wrapper: boots wasm_exec.js, lazy-loads PDF
@@ -709,6 +790,9 @@ Test strategy:
 - Unit tests per element type (parser, lexer, inline, lint, JSON).
 - Integration tests with real `.fountain` files in `testdata/`.
 - Structural PDF tests (header, EOF, page objects) — no golden PDFs because `gofpdf` embeds non-deterministic timestamps/metadata.
+- Geometry tests (`internal/renderer/geometry_test.go`) that render with compression off, read the `BT x y Td` operators back out of the content stream and assert the 12pt line pitch, the block gaps including the two above a scene heading, the dialogue group's single spacing, each element's column, and that a 60-character action line still fits the 6.0" column.
+- Page-breaking tests (`internal/renderer/pagebreak_test.go`) that locate every printed line on the 54-line grid, then assert each keep-together rule, the orphan and widow minimums and the sentence-boundary preference. `splitPoint`, the function that decides where a block may be divided, is unit tested as a table.
+- Continuation tests (`internal/renderer/continuations_test.go`) that a production script carries `(MORE)`, the repeated `(CONT'D)` cue and the scene `CONTINUED` marks in the right places, and that a spec script carries none of them. They also check that no mark shares a baseline with script — the regression that printed `CONTINUED: 2` on top of the first line of a page — that a page opening a fresh scene carries no head, and that a page picking a scene up mid-flow does. `sceneEndsAfter`, the function that decides whether a scene has run onto the next page, is unit tested as a table against the two ways a transition can be written.
 - Exhaustive in-process tests of the flag/positional matrix (`TestParseArgs`),
   covering flags before, between and after positionals, `--` and `-` handling,
   and the long flag spellings.
