@@ -202,23 +202,114 @@ func TestParseDialogue(t *testing.T) {
 	input := "INT. X - DAY\n\nMAN\nHello there.\nHow are you?\n"
 	f := Parse(input)
 
-	// SceneHeading, Character, Dialogue, Dialogue
-	if len(f.Elements) != 4 {
-		t.Fatalf("Elements len = %d, want 4", len(f.Elements))
+	// Consecutive dialogue lines are one paragraph, so they merge into a
+	// single element with the soft line break preserved.
+	if len(f.Elements) != 3 {
+		t.Fatalf("Elements len = %d, want 3", len(f.Elements))
 	}
-	d1, ok := f.Elements[2].(Dialogue)
+	d, ok := f.Elements[2].(Dialogue)
 	if !ok {
 		t.Fatalf("Element type = %T, want Dialogue", f.Elements[2])
 	}
-	if d1.Text != "Hello there." {
-		t.Errorf("Text = %q, want %q", d1.Text, "Hello there.")
+	if d.Text != "Hello there.\nHow are you?" {
+		t.Errorf("Text = %q, want %q", d.Text, "Hello there.\nHow are you?")
 	}
-	d2, ok := f.Elements[3].(Dialogue)
+}
+
+func TestParseMultiLineAction(t *testing.T) {
+	input := "INT. X - DAY\n\nThe door stands open.\nLight falls across the floor.\nNobody moves.\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 2 {
+		t.Fatalf("Elements len = %d, want 2", len(f.Elements))
+	}
+	a, ok := f.Elements[1].(Action)
 	if !ok {
-		t.Fatalf("Element type = %T, want Dialogue", f.Elements[3])
+		t.Fatalf("Element type = %T, want Action", f.Elements[1])
 	}
-	if d2.Text != "How are you?" {
-		t.Errorf("Text = %q, want %q", d2.Text, "How are you?")
+	want := "The door stands open.\nLight falls across the floor.\nNobody moves."
+	if a.Text != want {
+		t.Errorf("Text = %q, want %q", a.Text, want)
+	}
+}
+
+// TestParseActionRunStopsAtOtherElements checks the merge does not swallow an
+// element that interrupts a run, which is what keeps a parenthetical
+// interleaved mid-speech in its own place.
+func TestParseActionRunStopsAtOtherElements(t *testing.T) {
+	input := "The door stands open.\nLight falls across the floor.\n\nMARA\nIt is not stopping.\n"
+	f := Parse(input)
+
+	if len(f.Elements) != 3 {
+		t.Fatalf("Elements len = %d, want 3", len(f.Elements))
+	}
+	a, ok := f.Elements[0].(Action)
+	if !ok {
+		t.Fatalf("Element 0 type = %T, want Action", f.Elements[0])
+	}
+	if want := "The door stands open.\nLight falls across the floor."; a.Text != want {
+		t.Errorf("Text = %q, want %q", a.Text, want)
+	}
+}
+
+// TestParseParentheticalSplitsDialogue checks a parenthetical in the middle of
+// a speech ends the dialogue run instead of being merged into it.
+func TestParseParentheticalSplitsDialogue(t *testing.T) {
+	input := "INT. X - DAY\n\nMAN\nHello there.\n(beat)\nHow are you?\n"
+	f := Parse(input)
+
+	// SceneHeading, Character, Dialogue, Parenthetical, Dialogue
+	wantTypes := []string{"scene", "character", "dialogue", "parenthetical", "dialogue"}
+	if len(f.Elements) != len(wantTypes) {
+		t.Fatalf("Elements len = %d, want %d", len(f.Elements), len(wantTypes))
+	}
+	for i, want := range wantTypes {
+		var got string
+		switch f.Elements[i].(type) {
+		case SceneHeading:
+			got = "scene"
+		case Character:
+			got = "character"
+		case Dialogue:
+			got = "dialogue"
+		case Parenthetical:
+			got = "parenthetical"
+		default:
+			got = "other"
+		}
+		if got != want {
+			t.Errorf("Element %d type = %s, want %s", i, got, want)
+		}
+	}
+	if d := f.Elements[2].(Dialogue); d.Text != "Hello there." {
+		t.Errorf("Element 2 Text = %q, want %q", d.Text, "Hello there.")
+	}
+	if d := f.Elements[4].(Dialogue); d.Text != "How are you?" {
+		t.Errorf("Element 4 Text = %q, want %q", d.Text, "How are you?")
+	}
+}
+
+// TestParseLineDelimitedElementsDoNotMerge guards the types the Fountain spec
+// defines as line delimited, where two consecutive lines really are two
+// elements and must stay that way.
+func TestParseLineDelimitedElementsDoNotMerge(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{name: "lyrics", input: "~one\n~two\n", want: 2},
+		{name: "centered", input: ">one<\n>two<\n", want: 2},
+		{name: "transitions", input: "CUT TO:\nFADE TO:\n", want: 2},
+		{name: "parentheticals", input: "MAN\n(one)\n(two)\nHi.\n", want: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := len(Parse(tt.input).Elements); got != tt.want {
+				t.Errorf("len(Parse(%q).Elements) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
 	}
 }
 

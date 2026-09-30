@@ -211,16 +211,14 @@ func (p *Parser) nextElement() Element {
 		return SceneHeading{Text: tok.Content}
 
 	case TokenAction:
-		p.pos++
-		return Action{Text: tok.Content}
+		return Action{Text: strings.Join(p.mergeRun(TokenAction), "\n")}
 
 	case TokenCharacter:
 		p.pos++
 		return Character{Text: tok.Content}
 
 	case TokenDialogue:
-		p.pos++
-		return Dialogue{Text: tok.Content}
+		return Dialogue{Text: strings.Join(p.mergeRun(TokenDialogue), "\n")}
 
 	case TokenParenthetical:
 		p.pos++
@@ -260,20 +258,26 @@ func (p *Parser) nextElement() Element {
 
 // mergeConsecutiveNotes merges consecutive TokenNote tokens into a single Note.
 func (p *Parser) mergeConsecutiveNotes() Note {
-	var parts []string
-	for p.pos < len(p.tokens) && p.tokens[p.pos].Type == TokenNote {
-		parts = append(parts, p.tokens[p.pos].Content)
-		p.pos++
-	}
-	return Note{Text: strings.Join(parts, "\n")}
+	return Note{Text: strings.Join(p.mergeRun(TokenNote), "\n")}
 }
 
 // mergeConsecutiveBoneyards merges consecutive TokenBoneyard tokens into a single Boneyard.
 func (p *Parser) mergeConsecutiveBoneyards() Boneyard {
+	return Boneyard{Text: strings.Join(p.mergeRun(TokenBoneyard), "\n")}
+}
+
+// mergeRun collects the content of the run of consecutive tt tokens starting at
+// the cursor. A paragraph in Fountain is a block of consecutive non-blank lines
+// whose interior breaks are soft, so the run becomes one element with its
+// original line structure preserved as newlines; the renderer soft wraps it.
+// The run stops at the first token of any other type, which is what keeps a
+// parenthetical interleaved mid-speech from being swallowed by the dialogue
+// around it.
+func (p *Parser) mergeRun(tt TokenType) []string {
 	var parts []string
-	for p.pos < len(p.tokens) && p.tokens[p.pos].Type == TokenBoneyard {
+	for p.pos < len(p.tokens) && p.tokens[p.pos].Type == tt {
 		parts = append(parts, p.tokens[p.pos].Content)
 		p.pos++
 	}
-	return Boneyard{Text: strings.Join(parts, "\n")}
+	return parts
 }
