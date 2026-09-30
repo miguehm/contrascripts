@@ -44,9 +44,17 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
   if (url.pathname === '/ready') return send(200, 'ok')
 
+  // ROOT is the repository root, which has no index.html of its own, and it is
+  // the URL this server prints on startup. Send it to the demo rather than
+  // 404ing the first thing anyone opens.
+  if (url.pathname === '/') {
+    res.writeHead(302, { location: '/web/', 'cache-control': 'no-store' })
+    return res.end()
+  }
+
   // Resolve inside ROOT and refuse anything that escapes it.
   const decoded = decodeURIComponent(url.pathname)
-  const target = join(ROOT, normalize(decoded))
+  let target = join(ROOT, normalize(decoded))
   if (target !== ROOT && !target.startsWith(ROOT + sep)) return send(403, 'forbidden')
 
   let info
@@ -55,7 +63,18 @@ const server = createServer(async (req, res) => {
   } catch {
     return send(404, `not found: ${decoded}`)
   }
-  if (info.isDirectory()) return send(404, 'not a file')
+
+  // A directory is a path the user typed, not a file: serve its index.html the
+  // way any static server does. This is what makes /web/ work, the path
+  // index.html documents for the live preview.
+  if (info.isDirectory()) {
+    target = join(target, 'index.html')
+    try {
+      info = await stat(target)
+    } catch {
+      return send(404, `no index.html in ${decoded}`)
+    }
+  }
 
   res.writeHead(200, {
     'content-type': TYPES[extname(target)] || 'application/octet-stream',
