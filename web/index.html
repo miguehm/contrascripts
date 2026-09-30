@@ -76,19 +76,27 @@
 
       /* The page proportions follow the PDF spec: 1.5" left margin on an 8.5"
          sheet is 17.6%, a character cue at 3.7" is 43.5%, dialogue at 2.5" is
-         29.4%. Reproducing them here is what makes the preview a preview. */
+         29.4%. Reproducing them here is what makes the preview a preview.
+
+         Line spacing and block gaps track the renderer too. The PDF sets a
+         12pt Courier leading, so this is 1, not the 1.5 that reads better in
+         isolation, and the embedded face is named first because that is what
+         the PDF embeds. A block gap of one blank line is two lines, hence 2em;
+         the character, parenthetical and dialogue group stays single spaced
+         and is exempt below. `pre-line` keeps the soft line breaks inside a
+         paragraph, which the parser preserves and the PDF renders. */
       #script {
         background: var(--page);
         color: var(--ink);
         max-width: 46rem;
         margin: 0 auto;
         padding: 3rem 3rem 5rem;
-        font: 12pt/1.5 "Courier New", Courier, monospace;
+        font: 12pt/1 "Courier Prime", "Courier New", Courier, monospace;
       }
-      #script > * { margin: 0 0 1em; }
+      #script > * { margin: 0 0 2em; white-space: pre-line; }
       .sceneHeading { text-transform: uppercase; }
-      .character { margin-left: 43.5%; text-transform: uppercase; }
-      .parenthetical { margin-left: 36.5%; }
+      .character { margin-left: 43.5%; margin-bottom: 0; text-transform: uppercase; }
+      .parenthetical { margin-left: 36.5%; margin-right: 41.2%; margin-bottom: 0; }
       .dialogue { margin-left: 29.4%; margin-right: 17.6%; }
       .transition { text-align: right; text-transform: uppercase; }
       .centered { text-align: center; }
