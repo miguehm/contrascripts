@@ -44,10 +44,19 @@ export type ElementType =
 export interface Node {
   /** Lowercase element name, matching what the PDF draws. */
   type: ElementType
-  /** Element text exactly as parsed, before inline parsing. */
+  /**
+   * Element text exactly as parsed, before inline parsing. A dual-dialogue caret
+   * is the one exception: it is markup, so it is stripped and recorded as `dual`.
+   */
   text?: string
   /** Heading depth. Sections only. */
   level?: number
+  /**
+   * The cue carried the dual-dialogue caret, which the parser strips from
+   * `text` because it is markup rather than part of the name. Nothing draws the
+   * two columns yet, so a dual cue prints its name on its own.
+   */
+  dual?: boolean
   /**
    * Never emitted. A forced element (`.`, `@`, `!`) resolves to the type it
    * stands for, so it arrives as `sceneHeading` with `uppercase`, not as a
@@ -118,6 +127,11 @@ export interface TitlePage {
   address: string
   /** Whether the script asked for scene numbers. Off unless set. */
   sceneNumbers: boolean
+  /**
+   * Production script: emit the pagination notation a spec script omits,
+   * namely (MORE), (CONT'D) and the scene CONTINUED marks.
+   */
+  production: boolean
   /** Keys the parser did not recognise, rendered on the title page too. */
   custom: Record<string, string>
 }

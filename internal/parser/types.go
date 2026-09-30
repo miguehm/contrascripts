@@ -53,6 +53,7 @@ type TitlePage struct {
 	Manager       string            `json:"manager"`
 	Address       string            `json:"address"`
 	SceneNumbers  bool              `json:"sceneNumbers"`
+	Production    bool              `json:"production"`
 	Custom        map[string]string `json:"custom"`
 }
 
@@ -71,9 +72,14 @@ type Action struct {
 	Text string
 }
 
-// Character identifies a speaking character, stored literally as written.
+// Character identifies a speaking character. The name is stored as written,
+// minus the dual-dialogue caret, which is markup rather than part of the name.
 type Character struct {
 	Text string
+	// Dual records the trailing "^" of a dual-dialogue cue, so the marker
+	// survives without riding along on the name. Nothing draws the two columns
+	// yet; until something does, the name simply prints on its own.
+	Dual bool
 }
 
 // Dialogue is the text spoken by a character.

@@ -166,16 +166,20 @@ func (p *Parser) assignTitleField(tp *TitlePage, key, value string) {
 	case "address":
 		tp.Address = value
 	case "scene numbers", "scene number", "scenenumbers", "scenenumber":
-		tp.SceneNumbers = parseSceneNumbersValue(value)
+		tp.SceneNumbers = parseTitlePageBool(value)
+	case "production", "production script":
+		// Production scripts carry the pagination notation a spec script
+		// leaves out: (MORE), (CONT'D) and the scene CONTINUED marks.
+		tp.Production = parseTitlePageBool(value)
 	default:
 		tp.Custom[key] = value
 	}
 }
 
-// parseSceneNumbersValue interprets a title page boolean. Accepts
+// parseTitlePageBool interprets a title page boolean. Accepts
 // true/yes/y/on/1 (case-insensitive); anything else is false so the
 // feature stays disabled by default.
-func parseSceneNumbersValue(value string) bool {
+func parseTitlePageBool(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "true", "yes", "y", "on", "1":
 		return true
@@ -215,6 +219,11 @@ func (p *Parser) nextElement() Element {
 
 	case TokenCharacter:
 		p.pos++
+		// A dual-dialogue caret is markup, not part of the name, so it is
+		// recorded separately and kept out of the text every renderer prints.
+		if name, found := strings.CutSuffix(tok.Content, "^"); found {
+			return Character{Text: strings.TrimRight(name, " "), Dual: true}
+		}
 		return Character{Text: tok.Content}
 
 	case TokenDialogue:

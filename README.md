@@ -160,8 +160,8 @@ warning: line 5 [POSSIBLE_TRANSITION]: character cue looks like a transition mis
 | Element | Syntax | Example |
 |---|---|---|
 | Scene Heading | `INT./EXT.`, `.` prefix | `EXT. BRICK'S PATIO - DAY` / `.SNIPER SCOPE POV` |
-| Action | Plain text fallback | `A gorgeous day. The sun is shining.` |
-| Character | UPPERCASE after blank line, `@` forced | `STEEL` / `@McCLANE` / `BRICK ^` (dual) |
+| Action | Plain text fallback, multi-line | `A gorgeous day. The sun is shining.` |
+| Character | UPPERCASE after blank line, `@` forced, `^` dual | `STEEL` / `@McCLANE` / `BRICK ^` (dual) |
 | Dialogue | Line(s) after Character / Parenthetical | `Beer's ready!` |
 | Parenthetical | `(...)` after Character | `(beer raised)` / `(pause)` |
 | Transition | `TO:`, `>`, forced | `CUT TO:` / `SMASH CUT TO:` / `> THE END <` is centered, not transition |
@@ -177,8 +177,16 @@ warning: line 5 [POSSIBLE_TRANSITION]: character cue looks like a transition mis
 Notes:
 
 - Sections and synopses are parsed but omitted from the PDF (Fountain v1.1 behavior).
+- Dual dialogue (`^`) is recognised, linted and recorded on the element as `dual`, but
+  the two columns are not drawn, so a dual cue prints its name on its own. The caret is
+  markup rather than part of the name, so the parser keeps it off `text` and the wire
+  carries it as `dual` instead.
 - Notes and boneyards are parsed but invisible in the PDF.
-- Multi-line dialogue, notes, and boneyards are supported.
+- A paragraph is a run of consecutive non-blank lines. Multi-line action and dialogue are
+  supported: they are parsed as one element with the soft line breaks preserved, and the
+  renderer wraps them inside a single-spaced block. Notes and boneyards work the same way.
+  Lyrics, centered lines, parentheticals and transitions are line delimited by the Fountain
+  spec, so two consecutive lines of those stay two elements.
 - Screenplay formatting is intentional: scene headings and character names render in regular Courier, not bold.
 
 Inline formatting:

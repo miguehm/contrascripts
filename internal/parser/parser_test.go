@@ -682,10 +682,54 @@ func TestParseDualDialogue(t *testing.T) {
 		t.Fatalf("Elements len = %d, want 5", len(f.Elements))
 	}
 
-	// BRICK ^ should be parsed as Character with Text "BRICK ^"
+	// The caret is markup, so it is kept off the name and recorded as a flag.
 	char := f.Elements[3].(Character)
-	if char.Text != "BRICK ^" {
-		t.Errorf("Character Text = %q, want %q", char.Text, "BRICK ^")
+	if char.Text != "BRICK" {
+		t.Errorf("Character Text = %q, want %q", char.Text, "BRICK")
+	}
+	if !char.Dual {
+		t.Error("Character Dual = false, want true for a cue marked with ^")
+	}
+
+	// The ordinary cue carries no marker.
+	plain := f.Elements[1].(Character)
+	if plain.Text != "STEEL" {
+		t.Errorf("Character Text = %q, want %q", plain.Text, "STEEL")
+	}
+	if plain.Dual {
+		t.Error("Character Dual = true, want false for a cue with no caret")
+	}
+}
+
+func TestParseDualDialogueSpacing(t *testing.T) {
+	// Whatever spacing the author put around the caret, the name comes out clean.
+	// A cue needs a blank line before it, so each source opens with one.
+	tests := []struct {
+		cue  string
+		want string
+	}{
+		{cue: "BRICK^", want: "BRICK"},
+		{cue: "BRICK ^", want: "BRICK"},
+		{cue: "BRICK   ^", want: "BRICK"},
+		{cue: "MUJER DESCONOCIDA ^", want: "MUJER DESCONOCIDA"},
+	}
+
+	for _, tt := range tests {
+		src := "\n" + tt.cue + "\nBeer!\n"
+		f := Parse(src)
+		if len(f.Elements) == 0 {
+			t.Fatalf("Parse(%q) produced no elements", tt.cue)
+		}
+		char, ok := f.Elements[0].(Character)
+		if !ok {
+			t.Fatalf("Parse(%q) element 0 is %T, want Character", src, f.Elements[0])
+		}
+		if char.Text != tt.want {
+			t.Errorf("Parse(%q) cue = %q, want %q", src, char.Text, tt.want)
+		}
+		if !char.Dual {
+			t.Errorf("Parse(%q) Dual = false, want true", src)
+		}
 	}
 }
 
@@ -866,5 +910,41 @@ func assertType[T Element](t *testing.T, elem Element, typeName string) {
 	t.Helper()
 	if _, ok := elem.(T); !ok {
 		t.Errorf("Element type = %T, want %s", elem, typeName)
+	}
+}
+
+// --- Title Page Boolean Keys ---
+
+func TestParseTitlePageBooleans(t *testing.T) {
+	tests := []struct {
+		name           string
+		src            string
+		wantProduction bool
+		wantScenes     bool
+	}{
+		{name: "absent by default", src: "---\ntitle: T\n---\n\nINT. X - DAY\n"},
+		{name: "production true", src: "---\ntitle: T\nproduction: true\n---\n\nINT. X - DAY\n", wantProduction: true},
+		{name: "production yes", src: "---\ntitle: T\nproduction: yes\n---\n\nINT. X - DAY\n", wantProduction: true},
+		{name: "production on", src: "---\ntitle: T\nproduction: on\n---\n\nINT. X - DAY\n", wantProduction: true},
+		{name: "production off", src: "---\ntitle: T\nproduction: off\n---\n\nINT. X - DAY\n"},
+		{name: "production false", src: "---\ntitle: T\nproduction: false\n---\n\nINT. X - DAY\n"},
+		{name: "an unreadable value stays off", src: "---\ntitle: T\nproduction: perhaps\n---\n\nINT. X - DAY\n"},
+		{name: "production script spelling", src: "---\ntitle: T\nproduction script: true\n---\n\nINT. X - DAY\n", wantProduction: true},
+		{name: "both keys together", src: "---\ntitle: T\nproduction: true\nscene-numbers: true\n---\n\nINT. X - DAY\n", wantProduction: true, wantScenes: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := Parse(tt.src)
+			if f.TitlePage.Production != tt.wantProduction {
+				t.Errorf("Parse(%q).TitlePage.Production = %t, want %t", tt.src, f.TitlePage.Production, tt.wantProduction)
+			}
+			if f.TitlePage.SceneNumbers != tt.wantScenes {
+				t.Errorf("Parse(%q).TitlePage.SceneNumbers = %t, want %t", tt.src, f.TitlePage.SceneNumbers, tt.wantScenes)
+			}
+			if len(f.TitlePage.Custom) != 0 {
+				t.Errorf("Parse(%q).TitlePage.Custom = %v, want the keys consumed rather than kept custom", tt.src, f.TitlePage.Custom)
+			}
+		})
 	}
 }

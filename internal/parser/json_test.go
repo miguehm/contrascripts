@@ -301,3 +301,21 @@ func TestAppendJSONMapSortsKeys(t *testing.T) {
 		t.Errorf("appendJSON map = %s, want sorted keys", got)
 	}
 }
+
+// TestDualDialogueOnTheWire checks the caret is not lost to the wire format. The
+// parser takes it off the cue text, so without a field of its own the fact that a
+// cue was marked dual would simply disappear for anything reading the JSON.
+func TestDualDialogueOnTheWire(t *testing.T) {
+	dual := ToJSON(Parse("\nINT. HOUSE - DAY\n\nBRICK ^\nBeer!\n"))
+	if !strings.Contains(string(dual), `"dual":true`) {
+		t.Errorf("ToJSON(dual cue) = %s, want a dual field", dual)
+	}
+	if !strings.Contains(string(dual), `"text":"BRICK"`) {
+		t.Errorf("ToJSON(dual cue) = %s, want the name without the caret", dual)
+	}
+
+	plain := ToJSON(Parse("\nINT. HOUSE - DAY\n\nBRICK\nBeer!\n"))
+	if strings.Contains(string(plain), "dual") {
+		t.Errorf("ToJSON(plain cue) = %s, want no dual field so the wire is unchanged for scripts that do not use it", plain)
+	}
+}

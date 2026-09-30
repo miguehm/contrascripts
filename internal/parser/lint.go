@@ -81,6 +81,16 @@ func titleBodyStart(lines []string) int {
 	return i + 1
 }
 
+// isTitlePageBool reports whether v is a value a title page boolean accepts.
+// The falses are listed too, so that a clear negation is not warned about.
+func isTitlePageBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "yes", "y", "on", "1", "false", "no", "n", "off", "0", "":
+		return true
+	}
+	return false
+}
+
 func lintHeader(lines []string) []Warning {
 	var out []Warning
 	if len(lines) == 0 {
@@ -172,11 +182,14 @@ func lintHeader(lines []string) []Warning {
 		}
 	}
 	for k, v := range entries {
-		if norm(k) == "scene numbers" || norm(k) == "scene number" || k == "scenenumbers" || k == "scenenumber" {
-			switch strings.ToLower(strings.TrimSpace(v)) {
-			case "true", "yes", "y", "on", "1", "false", "no", "n", "off", "0", "":
-			default:
+		switch {
+		case norm(k) == "scene numbers" || norm(k) == "scene number" || k == "scenenumbers" || k == "scenenumber":
+			if !isTitlePageBool(v) {
 				out = append(out, Warning{Line: 1, Code: "BAD_SCENE_NUMBERS", Message: "scene-numbers accepts true/yes/y/on/1, got " + strings.TrimSpace(v)})
+			}
+		case norm(k) == "production" || k == "production script":
+			if !isTitlePageBool(v) {
+				out = append(out, Warning{Line: 1, Code: "BAD_PRODUCTION", Message: "production accepts true/yes/y/on/1, got " + strings.TrimSpace(v)})
 			}
 		}
 	}

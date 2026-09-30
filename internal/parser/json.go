@@ -26,6 +26,9 @@ type Node struct {
 	Uppercase bool `json:"uppercase,omitempty"`
 	// BaseItalic reports that renderers must style the whole element italic.
 	BaseItalic bool `json:"baseItalic,omitempty"`
+	// Dual reports that a character cue carried the dual-dialogue caret, which the
+	// parser strips from Text, so only this records that it was there.
+	Dual bool `json:"dual,omitempty"`
 	// Inline holds the parsed inline formatting, present only for element
 	// types where the PDF renderer honours **bold** and *italic*.
 	Inline []Span `json:"inline,omitempty"`
@@ -86,7 +89,7 @@ func toNode(el Element) (Node, bool) {
 	case Action:
 		return node("action", e.Text, false, false, true), true
 	case Character:
-		return node("character", e.Text, true, false, false), true
+		return dualNode("character", e.Text, e.Dual), true
 	case Dialogue:
 		return node("dialogue", e.Text, false, false, true), true
 	case Parenthetical:
@@ -129,6 +132,15 @@ func toForced(e Forced) Node {
 	default:
 		return node("action", e.Text, false, false, false)
 	}
+}
+
+// dualNode is node for a character cue, carrying the dual-dialogue marker. The
+// caret is stripped from the text by the parser, so without this the fact that a
+// cue was marked dual would be lost to anything reading the wire format.
+func dualNode(typ, text string, dual bool) Node {
+	n := node(typ, text, true, false, false)
+	n.Dual = dual
+	return n
 }
 
 func node(typ, text string, uppercase, baseItalic, inline bool) Node {
