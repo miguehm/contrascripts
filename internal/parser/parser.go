@@ -25,6 +25,9 @@ func ParseFile(path string) (*Fountain, error) {
 type Parser struct {
 	tokens []Token
 	pos    int
+	// titlePageLines records the source line of each normalized title page
+	// key, filled by parseTitlePage.
+	titlePageLines map[string]int
 }
 
 // parse builds the full Fountain AST from the token stream.
@@ -32,6 +35,7 @@ func (p *Parser) parse() *Fountain {
 	f := &Fountain{}
 
 	f.TitlePage = p.parseTitlePage()
+	f.TitlePageLines = p.titlePageLines
 
 	for p.pos < len(p.tokens) {
 		elem := p.nextElement()
@@ -48,6 +52,7 @@ func (p *Parser) parseTitlePage() TitlePage {
 	tp := TitlePage{
 		Custom: make(map[string]string),
 	}
+	p.titlePageLines = map[string]int{}
 
 	for p.pos < len(p.tokens) {
 		tok := p.tokens[p.pos]
@@ -67,17 +72,24 @@ func (p *Parser) parseTitlePage() TitlePage {
 
 		p.pos++
 		p.assignTitleField(&tp, key, value)
+		p.titlePageLines[normalizeTitleKey(key)] = tok.Line
 	}
 
 	return tp
+}
+
+// normalizeTitleKey canonicalizes a title page key ("Draft-Date" →
+// "draft date") the same way assignTitleField matches fields.
+func normalizeTitleKey(key string) string {
+	norm := strings.NewReplacer("-", " ", "_", " ").Replace(strings.ToLower(key))
+	return strings.Join(strings.Fields(norm), " ")
 }
 
 // assignTitleField sets a known title page field or falls back to Custom.
 func (p *Parser) assignTitleField(tp *TitlePage, key, value string) {
 	// Normalize YAML-style keys ("draft-date", "draft_date") to the canonical
 	// space-separated Fountain key before matching.
-	norm := strings.NewReplacer("-", " ", "_", " ").Replace(strings.ToLower(key))
-	norm = strings.Join(strings.Fields(norm), " ")
+	norm := normalizeTitleKey(key)
 	switch norm {
 	case "title":
 		tp.Title = value
@@ -212,34 +224,36 @@ func (p *Parser) nextElement() Element {
 
 	case TokenSceneHeading:
 		p.pos++
-		return SceneHeading{Text: tok.Content}
+		return SceneHeading{Line: tok.Line, Text: tok.Content}
 
 	case TokenAction:
-		return Action{Text: strings.Join(p.mergeRun(TokenAction), "\n")}
+		line := p.tokens[p.pos].Line
+		return Action{Line: line, Text: strings.Join(p.mergeRun(TokenAction), "\n")}
 
 	case TokenCharacter:
 		p.pos++
 		// A dual-dialogue caret is markup, not part of the name, so it is
 		// recorded separately and kept out of the text every renderer prints.
 		if name, found := strings.CutSuffix(tok.Content, "^"); found {
-			return Character{Text: strings.TrimRight(name, " "), Dual: true}
+			return Character{Line: tok.Line, Text: strings.TrimRight(name, " "), Dual: true}
 		}
-		return Character{Text: tok.Content}
+		return Character{Line: tok.Line, Text: tok.Content}
 
 	case TokenDialogue:
-		return Dialogue{Text: strings.Join(p.mergeRun(TokenDialogue), "\n")}
+		line := p.tokens[p.pos].Line
+		return Dialogue{Line: line, Text: strings.Join(p.mergeRun(TokenDialogue), "\n")}
 
 	case TokenParenthetical:
 		p.pos++
-		return Parenthetical{Text: tok.Content}
+		return Parenthetical{Line: tok.Line, Text: tok.Content}
 
 	case TokenTransition:
 		p.pos++
-		return Transition{Text: tok.Content}
+		return Transition{Line: tok.Line, Text: tok.Content}
 
 	case TokenCentered:
 		p.pos++
-		return Centered{Text: tok.Content}
+		return Centered{Line: tok.Line, Text: tok.Content}
 
 	case TokenNote:
 		return p.mergeConsecutiveNotes()
@@ -249,15 +263,15 @@ func (p *Parser) nextElement() Element {
 
 	case TokenLyric:
 		p.pos++
-		return Lyric{Text: tok.Content}
+		return Lyric{Line: tok.Line, Text: tok.Content}
 
 	case TokenPageBreak:
 		p.pos++
-		return PageBreak{}
+		return PageBreak{Line: tok.Line}
 
 	case TokenForced:
 		p.pos++
-		return Forced{Prefix: '.', Text: tok.Content}
+		return Forced{Line: tok.Line, Prefix: '.', Text: tok.Content}
 
 	default:
 		p.pos++
@@ -267,12 +281,14 @@ func (p *Parser) nextElement() Element {
 
 // mergeConsecutiveNotes merges consecutive TokenNote tokens into a single Note.
 func (p *Parser) mergeConsecutiveNotes() Note {
-	return Note{Text: strings.Join(p.mergeRun(TokenNote), "\n")}
+	line := p.tokens[p.pos].Line
+	return Note{Line: line, Text: strings.Join(p.mergeRun(TokenNote), "\n")}
 }
 
 // mergeConsecutiveBoneyards merges consecutive TokenBoneyard tokens into a single Boneyard.
 func (p *Parser) mergeConsecutiveBoneyards() Boneyard {
-	return Boneyard{Text: strings.Join(p.mergeRun(TokenBoneyard), "\n")}
+	line := p.tokens[p.pos].Line
+	return Boneyard{Line: line, Text: strings.Join(p.mergeRun(TokenBoneyard), "\n")}
 }
 
 // mergeRun collects the content of the run of consecutive tt tokens starting at

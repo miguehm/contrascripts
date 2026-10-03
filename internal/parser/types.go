@@ -2,8 +2,9 @@ package parser
 
 // Fountain is the root document node.
 type Fountain struct {
-	TitlePage TitlePage
-	Elements  []Element
+	TitlePage      TitlePage
+	TitlePageLines map[string]int
+	Elements       []Element
 }
 
 // TitlePage holds screenplay metadata. The json tags define the wire format
@@ -64,17 +65,20 @@ type Element interface {
 
 // SceneHeading represents a scene heading line (INT./EXT.).
 type SceneHeading struct {
+	Line int
 	Text string
 }
 
 // Action describes a line of action.
 type Action struct {
+	Line int
 	Text string
 }
 
 // Character identifies a speaking character. The name is stored as written,
 // minus the dual-dialogue caret, which is markup rather than part of the name.
 type Character struct {
+	Line int
 	Text string
 	// Dual records the trailing "^" of a dual-dialogue cue, so the marker
 	// survives without riding along on the name. Nothing draws the two columns
@@ -84,52 +88,62 @@ type Character struct {
 
 // Dialogue is the text spoken by a character.
 type Dialogue struct {
+	Line int
 	Text string
 }
 
 // Parenthetical is a direction within dialogue (whispered, beat, etc).
 type Parenthetical struct {
+	Line int
 	Text string
 }
 
 // Transition is a transition line (CUT TO:, FADE OUT., etc).
 type Transition struct {
+	Line int
 	Text string
 }
 
 // Centered is centered text enclosed in > <.
 type Centered struct {
+	Line int
 	Text string
 }
 
 // Note is a writer's note, invisible in output.
 type Note struct {
+	Line int
 	Text string
 }
 
 // Boneyard is a block comment /* ... */, invisible in output.
 type Boneyard struct {
+	Line int
 	Text string
 }
 
 // Section is a section heading (# Heading).
 type Section struct {
+	Line  int
 	Level int
 	Text  string
 }
 
 // Synopsis is a synopsis line (= Description).
 type Synopsis struct {
+	Line int
 	Text string
 }
 
 // Lyric is a musical lyric line (~ text).
 type Lyric struct {
+	Line int
 	Text string
 }
 
 // Forced is a line with a forced prefix (@, !, .).
 type Forced struct {
+	Line   int
 	Prefix rune
 	Text   string
 }
@@ -138,7 +152,9 @@ type Forced struct {
 type EmptyLine struct{}
 
 // PageBreak represents a forced page break (===).
-type PageBreak struct{}
+type PageBreak struct {
+	Line int
+}
 
 // InlineElement is the interface implemented by every inline formatting node.
 type InlineElement interface {

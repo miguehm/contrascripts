@@ -8,14 +8,17 @@ package parser
 // carry. Document is the stable wire format consumed by non-Go renderers
 // such as the web preview.
 type Document struct {
-	TitlePage TitlePage `json:"titlePage"`
-	Elements  []Node    `json:"elements"`
+	TitlePage      TitlePage      `json:"titlePage"`
+	TitlePageLines map[string]int `json:"titlePageLines,omitempty"`
+	Elements       []Node         `json:"elements"`
 }
 
 // Node is the JSON projection of a single screenplay Element.
 type Node struct {
 	// Type is the lowercase element name, e.g. "action" or "sceneHeading".
 	Type string `json:"type"`
+	// Line is the 1-based source line where the element starts.
+	Line int `json:"line"`
 	// Text is the element text exactly as parsed, before inline parsing.
 	Text string `json:"text,omitempty"`
 	// Level is the heading depth, set for sections only.
@@ -53,7 +56,7 @@ func ToDocument(doc *Fountain) *Document {
 	if tp.Custom == nil {
 		tp.Custom = map[string]string{}
 	}
-	out := &Document{TitlePage: tp, Elements: make([]Node, 0, len(doc.Elements))}
+	out := &Document{TitlePage: tp, TitlePageLines: doc.TitlePageLines, Elements: make([]Node, 0, len(doc.Elements))}
 	for _, el := range doc.Elements {
 		if node, ok := toNode(el); ok {
 			out.Elements = append(out.Elements, node)
@@ -85,33 +88,33 @@ func ToWarningsJSON(input string) []byte {
 func toNode(el Element) (Node, bool) {
 	switch e := el.(type) {
 	case SceneHeading:
-		return node("sceneHeading", e.Text, true, false, false), true
+		return node("sceneHeading", e.Line, e.Text, true, false, false), true
 	case Action:
-		return node("action", e.Text, false, false, true), true
+		return node("action", e.Line, e.Text, false, false, true), true
 	case Character:
-		return dualNode("character", e.Text, e.Dual), true
+		return dualNode("character", e.Line, e.Text, e.Dual), true
 	case Dialogue:
-		return node("dialogue", e.Text, false, false, true), true
+		return node("dialogue", e.Line, e.Text, false, false, true), true
 	case Parenthetical:
-		return node("parenthetical", e.Text, false, false, true), true
+		return node("parenthetical", e.Line, e.Text, false, false, true), true
 	case Transition:
-		return node("transition", e.Text, true, false, false), true
+		return node("transition", e.Line, e.Text, true, false, false), true
 	case Centered:
-		return node("centered", e.Text, false, false, true), true
+		return node("centered", e.Line, e.Text, false, false, true), true
 	case Lyric:
-		return node("lyric", e.Text, false, true, true), true
+		return node("lyric", e.Line, e.Text, false, true, true), true
 	case Forced:
 		return toForced(e), true
 	case Note:
-		return node("note", e.Text, false, false, false), true
+		return node("note", e.Line, e.Text, false, false, false), true
 	case Boneyard:
-		return node("boneyard", e.Text, false, false, false), true
+		return node("boneyard", e.Line, e.Text, false, false, false), true
 	case Section:
-		return Node{Type: "section", Text: e.Text, Level: e.Level}, true
+		return Node{Type: "section", Line: e.Line, Text: e.Text, Level: e.Level}, true
 	case Synopsis:
-		return node("synopsis", e.Text, false, false, false), true
+		return node("synopsis", e.Line, e.Text, false, false, false), true
 	case PageBreak:
-		return Node{Type: "pageBreak"}, true
+		return Node{Type: "pageBreak", Line: e.Line}, true
 	case EmptyLine:
 		return Node{}, false
 	default:
@@ -124,27 +127,27 @@ func toNode(el Element) (Node, bool) {
 func toForced(e Forced) Node {
 	switch e.Prefix {
 	case '.':
-		return node("sceneHeading", e.Text, true, false, false)
+		return node("sceneHeading", e.Line, e.Text, true, false, false)
 	case '@':
-		return node("character", e.Text, true, false, false)
+		return node("character", e.Line, e.Text, true, false, false)
 	case '!':
-		return node("action", e.Text, false, false, true)
+		return node("action", e.Line, e.Text, false, false, true)
 	default:
-		return node("action", e.Text, false, false, false)
+		return node("action", e.Line, e.Text, false, false, false)
 	}
 }
 
 // dualNode is node for a character cue, carrying the dual-dialogue marker. The
 // caret is stripped from the text by the parser, so without this the fact that a
 // cue was marked dual would be lost to anything reading the wire format.
-func dualNode(typ, text string, dual bool) Node {
-	n := node(typ, text, true, false, false)
+func dualNode(typ string, line int, text string, dual bool) Node {
+	n := node(typ, line, text, true, false, false)
 	n.Dual = dual
 	return n
 }
 
-func node(typ, text string, uppercase, baseItalic, inline bool) Node {
-	n := Node{Type: typ, Text: text, Uppercase: uppercase, BaseItalic: baseItalic}
+func node(typ string, line int, text string, uppercase, baseItalic, inline bool) Node {
+	n := Node{Type: typ, Line: line, Text: text, Uppercase: uppercase, BaseItalic: baseItalic}
 	if inline {
 		n.Inline = spans(ParseInline(text))
 	}

@@ -76,6 +76,19 @@ test('the package manifest points at files that exist', async () => {
   }
 })
 
+test('the wire typedef declares source line fields', async () => {
+  // Node.line and Document.titlePageLines carry the source positions the
+  // editor double-click feature needs. If the hand-written .d.ts drops them,
+  // a TS consumer compiles against fields the runtime actually sends.
+  const types = await readFile(TYPES, 'utf8')
+
+  const nodeBody = types.slice(types.indexOf('export interface Node'))
+  expect(nodeBody).toContain('line: number')
+
+  const docBody = types.slice(types.indexOf('export interface Document'))
+  expect(docBody).toContain('titlePageLines')
+})
+
 test('the manifest version is the CLI version', async () => {
   // One source of truth: cmd/fountain/main.go. `make dist` reads the constant
   // out of it, and a consumer reading package.json must not learn a different

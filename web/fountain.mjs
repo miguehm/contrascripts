@@ -48,6 +48,7 @@ export class FountainError extends Error {
 /**
  * @typedef {object} Node
  * @property {string} type element name, e.g. 'action' or 'sceneHeading'
+ * @property {number} line 1-based source line where the element starts
  * @property {string} [text] element text before inline parsing
  * @property {number} [level] heading depth, sections only
  * @property {string} [prefix] never emitted; a forced element resolves to the
@@ -60,6 +61,7 @@ export class FountainError extends Error {
 /**
  * @typedef {object} Document
  * @property {Record<string, any>} titlePage normalized title page metadata
+ * @property {Record<string, number>} [titlePageLines] source line per recognized title page key
  * @property {Node[]} elements the screenplay, empty lines dropped
  */
 

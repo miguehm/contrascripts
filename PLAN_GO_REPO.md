@@ -47,6 +47,13 @@ Repo: `../2026-08-31-fountain-parser`
 Cuando esté listo, avisar para verificar en la app que `doc.elements[].line`
 y `doc.titlePageLines` llegan al cliente y continuar con la parte de la web.
 
+## Estado
+
+Implementado (rama `feat/wire-source-lines`): `go test ./...` y `go vet`
+(linux y js/wasm) en verde, `make dist` regenerado y `npm run sync` copiado
+en el repo web (`src/vendor/fountain.d.mts` ya declara `line` y
+`titlePageLines`). Queda pendiente la verificación en la app.
+
 ## Observaciones detectadas al revisar (revisar después)
 
 - `nextElement` en `internal/parser/parser.go` hoy **descarta `Section` y

@@ -44,6 +44,8 @@ export type ElementType =
 export interface Node {
   /** Lowercase element name, matching what the PDF draws. */
   type: ElementType
+  /** 1-based source line where the element starts. */
+  line: number
   /**
    * Element text exactly as parsed, before inline parsing. A dual-dialogue caret
    * is the one exception: it is markup, so it is stripped and recorded as `dual`.
@@ -139,6 +141,8 @@ export interface TitlePage {
 /** A parsed screenplay. */
 export interface Document {
   titlePage: TitlePage
+  /** Source line of each recognized title page key, keyed by normalized name ("draft date"). */
+  titlePageLines?: Record<string, number>
   /** The screenplay, empty lines dropped. */
   elements: Node[]
 }

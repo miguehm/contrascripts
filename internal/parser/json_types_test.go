@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"encoding/json"
 	"os"
 	"reflect"
 	"regexp"
@@ -162,5 +163,65 @@ func TestTypesFileListsEveryElementType(t *testing.T) {
 		if !strings.Contains(src, "'"+name+"'") {
 			t.Errorf("element type %q is not in the ElementType union in %s", name, typesFile)
 		}
+	}
+}
+
+// TestWireFormatCarriesSourceLines pins the two fields this change adds:
+// every element node carries its 1-based source line, and recognized title
+// page keys map to their source line. A regression that drops either would
+// leave the double-click-to-source feature dead without a compile error.
+func TestWireFormatCarriesSourceLines(t *testing.T) {
+	input := "Title: T\nDraft-Date: hoy\n\nEXT. CASA - DIA\n\nAcción.\n"
+	doc := ToDocument(Parse(input))
+
+	if doc.TitlePageLines["title"] != 1 {
+		t.Errorf("titlePageLines[title] = %d, want 1", doc.TitlePageLines["title"])
+	}
+	if doc.TitlePageLines["draft date"] != 2 {
+		t.Errorf("titlePageLines[draft date] = %d, want 2 (key must be normalized)", doc.TitlePageLines["draft date"])
+	}
+	if len(doc.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(doc.Elements))
+	}
+	if doc.Elements[0].Line != 4 || doc.Elements[1].Line != 6 {
+		t.Errorf("element lines = %d, %d; want 4, 6", doc.Elements[0].Line, doc.Elements[1].Line)
+	}
+
+	raw := ToJSON(Parse(input))
+	var wire struct {
+		TitlePageLines map[string]int `json:"titlePageLines"`
+		Elements       []struct {
+			Line int `json:"line"`
+		} `json:"elements"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("wire JSON does not decode: %v", err)
+	}
+	if wire.TitlePageLines["title"] != 1 || len(wire.Elements) != 2 || wire.Elements[0].Line != 4 {
+		t.Errorf("wire JSON lost lines: %+v", wire)
+	}
+}
+
+// TestTypesFileDeclaresLineAndTitlePageLines mirrors the TitlePage guards for
+// the new fields on Node and Document.
+func TestTypesFileDeclaresLineAndTitlePageLines(t *testing.T) {
+	raw, err := os.ReadFile(typesFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", typesFile, err)
+	}
+	src := string(raw)
+
+	nodeStart := strings.Index(src, "export interface Node {")
+	if nodeStart < 0 {
+		t.Fatalf("%s has no Node interface", typesFile)
+	}
+	nodeBody := src[nodeStart:]
+	nodeBody = nodeBody[:strings.Index(nodeBody, "\n}")]
+	if !regexp.MustCompile(`(?m)^\s*line:\s*number`).MatchString(nodeBody) {
+		t.Errorf("Node in %s is missing 'line: number'", typesFile)
+	}
+
+	if !strings.Contains(src, "titlePageLines") {
+		t.Errorf("%s is missing titlePageLines on Document", typesFile)
 	}
 }
