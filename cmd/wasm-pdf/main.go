@@ -8,6 +8,7 @@
 // Exported JS API:
 //
 //	renderPDF(text) -> Uint8Array
+//	paginate(text)  -> string   // JSON ScenePage[]
 package main
 
 import (
@@ -21,6 +22,7 @@ import (
 
 func main() {
 	js.Global().Set("fountainRenderPDF", js.FuncOf(renderPDF))
+	js.Global().Set("fountainPaginate", js.FuncOf(paginate))
 	select {}
 }
 
@@ -37,6 +39,13 @@ func renderPDF(_ js.Value, args []js.Value) any {
 	out := js.Global().Get("Uint8Array").New(len(buf.Bytes()))
 	js.CopyBytesToJS(out, buf.Bytes())
 	return out
+}
+
+func paginate(_ js.Value, args []js.Value) any {
+	if len(args) == 0 {
+		return throw("paginate: missing text argument")
+	}
+	return string(renderer.Paginate(args[0].String()))
 }
 
 func throw(format string, args ...any) any {

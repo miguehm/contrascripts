@@ -73,10 +73,18 @@ export class FountainError extends Error {
  */
 
 /**
+ * @typedef {object} ScenePage
+ * @property {number} line 1-based source line where the scene heading starts
+ * @property {number} page absolute 1-based PDF page where the heading starts,
+ *   including the title page, matching the pdf.js numbering a web preview sees
+ */
+
+/**
  * @typedef {object} Fountain
  * @property {(text: string) => Document} parse parse to a Document
  * @property {(text: string) => Warning[]} lint format warnings
  * @property {(text: string) => Promise<Uint8Array>} renderPDF render to a PDF
+ * @property {(text: string) => Promise<ScenePage[]>} paginate scene headings to PDF pages
  * @property {() => boolean} pdfLoaded whether the PDF module is already resident
  * @property {() => Promise<void>} preloadPDF warm the PDF module up early
  * @property {Error|null} [failure] set if a module died after loading
@@ -101,6 +109,7 @@ const GLOBALS = {
   parse: 'fountainParse',
   lint: 'fountainLint',
   render: 'fountainRenderPDF',
+  paginate: 'fountainPaginate',
 }
 
 /** The directory this module was served from, so defaults need no arguments. */
@@ -309,12 +318,12 @@ export async function createFountain(options = {}) {
       const started = await start(
         await instantiate('fountain-pdf.wasm', pdfRuntime.importObject, baseURL),
         pdfRuntime,
-        [GLOBALS.render],
+        [GLOBALS.render, GLOBALS.paginate],
       )
       started.exited.catch((err) => {
         failure ||= err instanceof Error ? err : new FountainError(String(err))
       })
-      return started.calls[GLOBALS.render]
+      return started.calls
     })()
     try {
       return await pdf
@@ -336,7 +345,7 @@ export async function createFountain(options = {}) {
     },
     renderPDF: async (text) => {
       if (failure) throw failure
-      const render = await loadPDF()
+      const render = (await loadPDF())[GLOBALS.render]
       const bytes = render(text)
       if (bytes === null || bytes === undefined) {
         throw new FountainError(
@@ -345,6 +354,11 @@ export async function createFountain(options = {}) {
         )
       }
       return bytes
+    },
+    paginate: async (text) => {
+      if (failure) throw failure
+      const calls = await loadPDF()
+      return readJSON(calls[GLOBALS.paginate], 'paginate', text)
     },
     pdfLoaded: () => pdf !== null,
     preloadPDF: async () => {

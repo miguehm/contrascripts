@@ -106,6 +106,25 @@ test('renders a PDF on demand', async () => {
   expect(await page.evaluate(() => window.fountain.pdfLoaded())).toBe(true)
 })
 
+test('paginates scene headings to PDF pages', async () => {
+  const pages = await page.evaluate(async (text) => {
+    const doc = window.fountain.parse(text)
+    return window.fountain.paginate(text).then((entries) => ({ entries, doc }))
+  }, SCRIPT)
+
+  expect(Array.isArray(pages.entries)).toBe(true)
+  expect(pages.entries.length).toBeGreaterThan(0)
+  const headings = pages.doc.elements.filter((el) => el.type === 'sceneHeading')
+  expect(pages.entries.length).toBe(headings.length)
+  for (const [i, entry] of pages.entries.entries()) {
+    expect(entry).toMatchObject({ line: headings[i].line, page: expect.any(Number) })
+    expect(entry.page).toBeGreaterThanOrEqual(1)
+  }
+  expect(pages.entries[0].page).toBeLessThanOrEqual(
+    pages.entries[pages.entries.length - 1].page,
+  )
+})
+
 test('the parser survives the PDF module entering the same page', async () => {
   // The reason the spec is one serial run on one page. Two compiled modules
   // means two Go runtimes, and each patches the same globalThis. If the second
@@ -139,9 +158,10 @@ test('the Go globals signal failure with null', async () => {
     parse: globalThis.fountainParse(),
     lint: globalThis.fountainLint(),
     render: globalThis.fountainRenderPDF(),
+    paginate: globalThis.fountainPaginate(),
   }))
 
-  expect(outcomes).toEqual({ parse: null, lint: null, render: null })
+  expect(outcomes).toEqual({ parse: null, lint: null, render: null, paginate: null })
 })
 
 test('boots without page errors or unexpected console errors', () => {

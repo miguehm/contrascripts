@@ -65,6 +65,10 @@ type PDFRenderer struct {
 	// lastCue is the cue most recently drawn, which is the one to repeat when a
 	// speech continues over a page break.
 	lastCue *parser.Character
+	// scenePages records the absolute page where each scene heading
+	// starts, in document order. Populated by renderElements so a
+	// Paginate call can map source lines to PDF pages.
+	scenePages []ScenePage
 }
 
 func New(doc *parser.Fountain) *PDFRenderer {
@@ -425,6 +429,20 @@ func isSceneHeading(el parser.Element) bool {
 	return false
 }
 
+// sceneLine reports the source line of a scene heading, resolving forced
+// headings to the type they stand for like toNode does in the parser.
+func sceneLine(el parser.Element) (int, bool) {
+	switch e := el.(type) {
+	case parser.SceneHeading:
+		return e.Line, true
+	case parser.Forced:
+		if e.Prefix == '.' {
+			return e.Line, true
+		}
+	}
+	return 0, false
+}
+
 func isTransition(el parser.Element) bool {
 	_, ok := el.(parser.Transition)
 	return ok
@@ -455,6 +473,7 @@ func (r *PDFRenderer) renderElements() {
 	r.pdf.AddPage()
 	r.sceneNum = 0
 	r.prevVisible = nil
+	r.scenePages = nil
 
 	for i, el := range r.doc.Elements {
 		if !visible(el) {
@@ -468,6 +487,9 @@ func (r *PDFRenderer) renderElements() {
 			r.inScene = true
 		}
 		r.breakForKeepTogether(r.doc.Elements, i)
+		if line, ok := sceneLine(el); ok {
+			r.scenePages = append(r.scenePages, ScenePage{Line: line, Page: r.pdf.PageNo()})
+		}
 		r.renderElement(r.doc.Elements, i)
 	}
 }

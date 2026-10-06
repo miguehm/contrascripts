@@ -89,6 +89,23 @@ test('the wire typedef declares source line fields', async () => {
   expect(docBody).toContain('titlePageLines')
 })
 
+test('the paginate typedef declares scene page fields', async () => {
+  // ScenePage carries the line → absolute PDF page map the preview's exact
+  // scene jump needs. The wrapper documents it in JSDoc and the .d.ts must
+  // mirror both the type and the Fountain.paginate method.
+  const types = await readFile(TYPES, 'utf8')
+  const wrapper = await readFile(WRAPPER, 'utf8')
+
+  const sceneBody = types.slice(types.indexOf('export interface ScenePage'))
+  expect(sceneBody).toContain('line: number')
+  expect(sceneBody).toContain('page: number')
+
+  const fountainBody = types.slice(types.indexOf('export interface Fountain'))
+  expect(fountainBody).toContain('paginate')
+
+  expect(wrapper).toContain('fountainPaginate')
+})
+
 test('the manifest version is the CLI version', async () => {
   // One source of truth: cmd/fountain/main.go. `make dist` reads the constant
   // out of it, and a consumer reading package.json must not learn a different

@@ -157,6 +157,14 @@ export interface Warning {
   message: string
 }
 
+/** A scene heading mapped to its absolute PDF page. */
+export interface ScenePage {
+  /** 1-based source line where the scene heading starts. */
+  line: number
+  /** Absolute 1-based PDF page where the heading starts, including the title page. */
+  page: number
+}
+
 /** Options accepted by {@link createFountain}. */
 export interface Options {
   /**
@@ -185,6 +193,8 @@ export interface Fountain {
   lint(text: string): Warning[]
   /** Render to a PDF, loading the heavy module on first use. */
   renderPDF(text: string): Promise<Uint8Array>
+  /** Scene headings to absolute PDF pages, loading the heavy module on first use. */
+  paginate(text: string): Promise<ScenePage[]>
   /** Whether the PDF module is already resident. */
   pdfLoaded(): boolean
   /** Warm the PDF module up early. */
